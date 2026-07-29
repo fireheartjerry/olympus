@@ -124,6 +124,7 @@ class AdmissionReceipt:
     authority_epoch: int
     lease_id: str
     workflow_id: str
+    duplicate: bool = False
 
 
 @dataclass(frozen=True)
@@ -178,6 +179,8 @@ class AuthorityRepository(Protocol):
         lease_request: LeaseRequest,
         now: datetime,
     ) -> AuthorityLease: ...
+
+    async def active_lease(self) -> AuthorityLease | None: ...
 
     async def issue_lease(self, request: LeaseRequest) -> AuthorityLease: ...
 
@@ -301,7 +304,7 @@ class InMemoryAuthorityRepository:
                 digest, receipt = duplicate
                 if digest != request.request_digest:
                     raise AdmissionDenied("interaction identity was reused with another payload")
-                return receipt
+                return replace(receipt, duplicate=True)
             if self._frozen:
                 raise AdmissionDenied("authority is frozen")
             lease = self._leases.get(request.lease_id)

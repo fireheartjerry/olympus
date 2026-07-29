@@ -286,6 +286,7 @@ class SqlAlchemyAuthorityRepository:
                     authority_epoch=request.authority_epoch,
                     lease_id=request.lease_id,
                     workflow_id=duplicate.workflow_id,
+                    duplicate=True,
                 )
             if freeze.frozen:
                 raise AdmissionDenied("authority is frozen")
@@ -372,6 +373,20 @@ class SqlAlchemyAuthorityRepository:
             if lease is None:
                 raise AuthorityRepositoryError("lease does not exist")
             return lease.revoked_at is not None
+
+    async def active_lease(self) -> AuthorityLease | None:
+        async with self._sessions() as session:
+            rows = (
+                await session.scalars(
+                    select(AuthorityLeaseRow)
+                    .where(AuthorityLeaseRow.revoked_at.is_(None))
+                    .order_by(AuthorityLeaseRow.authority_epoch.desc())
+                    .limit(2)
+                )
+            ).all()
+            if len(rows) > 1:
+                raise AuthorityRepositoryError("multiple active leases violate authority state")
+            return None if not rows else _lease_from_row(rows[0])
 
     async def audit_events(self) -> tuple[AuditEvent, ...]:
         async with self._sessions() as session:

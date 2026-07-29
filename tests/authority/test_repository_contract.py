@@ -90,7 +90,9 @@ async def test_duplicate_interaction_returns_original_outcome() -> None:
     first = await repository.admit(request)
     second = await repository.admit(request)
 
-    assert first == second
+    assert first.workflow_id == second.workflow_id
+    assert first.duplicate is False
+    assert second.duplicate is True
 
 
 async def test_audit_chain_verifies_after_authority_transitions() -> None:

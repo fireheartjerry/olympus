@@ -22,6 +22,15 @@ class DiscordCommandData(BaseModel):
 
     id: Snowflake
     name: str
+    options: tuple["DiscordCommandOption", ...] = ()
+
+
+class DiscordCommandOption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    type: Literal[3]
+    value: str
 
 
 class DiscordInteraction(BaseModel):
