@@ -7,8 +7,15 @@ The implementation source of truth is the approved [design specification](docs/s
 ## Status
 
 - Architecture: approved and resource-sized for the OVH VPS-4 production-v1 node.
-- Implementation: the foundation walking skeleton is implemented and verified locally; remote CI evidence is pending a successful pull-request run from the implementation branch or a post-merge `main` run.
+- Implementation: the foundation, trusted authority boundary, and shallow
+  governed MVP for roadmap Slices 2–13 are implemented and verified locally.
+  Connected providers and production infrastructure remain deliberately
+  inactive pending their acceptance gates.
 - Repository visibility: private.
+
+The exact MVP capability map, verification evidence, and remaining production
+gates are recorded in
+[docs/implementation/mvp-slices-2-13.md](docs/implementation/mvp-slices-2-13.md).
 
 ## Delivery sequence
 
