@@ -25,6 +25,25 @@ class AdmissionDenied(AuthorityRepositoryError):
 
 
 @dataclass(frozen=True)
+class Credential:
+    credential_id: bytes
+    commander_id: str
+    public_key: bytes
+    sign_count: int
+    created_at: datetime
+    revoked_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if not self.credential_id or not self.public_key:
+            raise ValueError("credential identity and public key must not be empty")
+        if self.sign_count < 0:
+            raise ValueError("credential sign_count cannot be negative")
+        _require_aware(self.created_at, "created_at")
+        if self.revoked_at is not None:
+            _require_aware(self.revoked_at, "revoked_at")
+
+
+@dataclass(frozen=True)
 class Challenge:
     challenge_id: str
     challenge_value: bytes
@@ -134,6 +153,32 @@ class AuthorityRepository(Protocol):
         now: datetime,
     ) -> Challenge: ...
 
+    async def get_challenge(self, challenge_id: str) -> Challenge: ...
+
+    async def credential_count(self) -> int: ...
+
+    async def get_credential(self, credential_id: bytes) -> Credential: ...
+
+    async def list_credentials(self) -> tuple[Credential, ...]: ...
+
+    async def complete_registration(
+        self,
+        challenge_id: str,
+        challenge_digest: bytes,
+        credential: Credential,
+        now: datetime,
+    ) -> Credential: ...
+
+    async def complete_authentication(
+        self,
+        challenge_id: str,
+        challenge_digest: bytes,
+        credential_id: bytes,
+        new_sign_count: int,
+        lease_request: LeaseRequest,
+        now: datetime,
+    ) -> AuthorityLease: ...
+
     async def issue_lease(self, request: LeaseRequest) -> AuthorityLease: ...
 
     async def admit(self, request: AdmissionRequest) -> AdmissionReceipt: ...
@@ -150,6 +195,7 @@ class InMemoryAuthorityRepository:
         self._freeze_epoch = 1
         self._frozen = False
         self._challenges: dict[str, Challenge] = {}
+        self._credentials: dict[bytes, Credential] = {}
         self._leases: dict[str, AuthorityLease] = {}
         self._active_lease_id: str | None = None
         self._interactions: dict[str, tuple[bytes, AdmissionReceipt]] = {}
@@ -174,47 +220,79 @@ class InMemoryAuthorityRepository:
     ) -> Challenge:
         _require_aware(now, "now")
         async with self._lock:
+            return self._consume_challenge_locked(challenge_id, challenge_digest, now)
+
+    async def get_challenge(self, challenge_id: str) -> Challenge:
+        async with self._lock:
             challenge = self._challenges.get(challenge_id)
-            if challenge is None or challenge.challenge_digest != challenge_digest:
-                raise ChallengeInvalid("challenge does not match")
-            if challenge.consumed_at is not None:
-                raise ChallengeConsumed("challenge was already consumed")
-            if now > challenge.expires_at:
-                raise ChallengeInvalid("challenge has expired")
-            consumed = replace(challenge, consumed_at=now)
-            self._challenges[challenge_id] = consumed
-            return consumed
+            if challenge is None:
+                raise ChallengeInvalid("challenge does not exist")
+            return challenge
+
+    async def credential_count(self) -> int:
+        async with self._lock:
+            return sum(credential.revoked_at is None for credential in self._credentials.values())
+
+    async def get_credential(self, credential_id: bytes) -> Credential:
+        async with self._lock:
+            credential = self._credentials.get(credential_id)
+            if credential is None or credential.revoked_at is not None:
+                raise AuthorityRepositoryError("credential is unavailable")
+            return credential
+
+    async def list_credentials(self) -> tuple[Credential, ...]:
+        async with self._lock:
+            return tuple(
+                credential
+                for credential in self._credentials.values()
+                if credential.revoked_at is None
+            )
+
+    async def replace_credential(self, credential: Credential) -> None:
+        async with self._lock:
+            if credential.credential_id not in self._credentials:
+                raise AuthorityRepositoryError("credential does not exist")
+            self._credentials[credential.credential_id] = credential
+
+    async def complete_registration(
+        self,
+        challenge_id: str,
+        challenge_digest: bytes,
+        credential: Credential,
+        now: datetime,
+    ) -> Credential:
+        async with self._lock:
+            self._consume_challenge_locked(challenge_id, challenge_digest, now)
+            if credential.credential_id in self._credentials:
+                raise AuthorityRepositoryError("credential identity already exists")
+            self._credentials[credential.credential_id] = credential
+            return credential
+
+    async def complete_authentication(
+        self,
+        challenge_id: str,
+        challenge_digest: bytes,
+        credential_id: bytes,
+        new_sign_count: int,
+        lease_request: LeaseRequest,
+        now: datetime,
+    ) -> AuthorityLease:
+        async with self._lock:
+            self._consume_challenge_locked(challenge_id, challenge_digest, now)
+            credential = self._credentials.get(credential_id)
+            if credential is None or credential.revoked_at is not None:
+                raise AuthorityRepositoryError("credential is unavailable")
+            if new_sign_count < credential.sign_count:
+                raise AuthorityRepositoryError("credential counter regressed")
+            self._credentials[credential_id] = replace(
+                credential,
+                sign_count=new_sign_count,
+            )
+            return self._issue_lease_locked(lease_request)
 
     async def issue_lease(self, request: LeaseRequest) -> AuthorityLease:
         async with self._lock:
-            if self._frozen:
-                raise AdmissionDenied("authority is frozen")
-            if request.lease_id in self._leases:
-                raise AuthorityRepositoryError("lease identity already exists")
-            self._revoke_active(request.issued_at, "replaced")
-            self._authority_epoch += 1
-            lease = AuthorityLease(
-                lease_id=request.lease_id,
-                authority_epoch=self._authority_epoch,
-                commander_id=request.commander_id,
-                guild_id=request.guild_id,
-                channel_scope_digest=request.channel_scope_digest,
-                credential_id=request.credential_id,
-                issued_at=request.issued_at,
-                expires_at=request.expires_at,
-            )
-            self._leases[lease.lease_id] = lease
-            self._active_lease_id = lease.lease_id
-            self._append_audit(
-                "lease-issued",
-                {
-                    "authority_epoch": lease.authority_epoch,
-                    "commander_id": lease.commander_id,
-                    "guild_id": lease.guild_id,
-                    "lease_id": lease.lease_id,
-                },
-            )
-            return lease
+            return self._issue_lease_locked(request)
 
     async def admit(self, request: AdmissionRequest) -> AdmissionReceipt:
         async with self._lock:
@@ -315,6 +393,53 @@ class InMemoryAuthorityRepository:
             )
         self._active_lease_id = None
 
+    def _consume_challenge_locked(
+        self,
+        challenge_id: str,
+        challenge_digest: bytes,
+        now: datetime,
+    ) -> Challenge:
+        challenge = self._challenges.get(challenge_id)
+        if challenge is None or challenge.challenge_digest != challenge_digest:
+            raise ChallengeInvalid("challenge does not match")
+        if challenge.consumed_at is not None:
+            raise ChallengeConsumed("challenge was already consumed")
+        if now > challenge.expires_at:
+            raise ChallengeInvalid("challenge has expired")
+        consumed = replace(challenge, consumed_at=now)
+        self._challenges[challenge_id] = consumed
+        return consumed
+
+    def _issue_lease_locked(self, request: LeaseRequest) -> AuthorityLease:
+        if self._frozen:
+            raise AdmissionDenied("authority is frozen")
+        if request.lease_id in self._leases:
+            raise AuthorityRepositoryError("lease identity already exists")
+        self._revoke_active(request.issued_at, "replaced")
+        self._authority_epoch += 1
+        lease = AuthorityLease(
+            lease_id=request.lease_id,
+            authority_epoch=self._authority_epoch,
+            commander_id=request.commander_id,
+            guild_id=request.guild_id,
+            channel_scope_digest=request.channel_scope_digest,
+            credential_id=request.credential_id,
+            issued_at=request.issued_at,
+            expires_at=request.expires_at,
+        )
+        self._leases[lease.lease_id] = lease
+        self._active_lease_id = lease.lease_id
+        self._append_audit(
+            "lease-issued",
+            {
+                "authority_epoch": lease.authority_epoch,
+                "commander_id": lease.commander_id,
+                "guild_id": lease.guild_id,
+                "lease_id": lease.lease_id,
+            },
+        )
+        return lease
+
     def _append_audit(self, event_type: str, body: dict[str, object]) -> None:
         sequence = len(self._audit) + 1
         previous_hash = self._audit[-1].event_hash if self._audit else _GENESIS_HASH
@@ -329,6 +454,10 @@ class InMemoryAuthorityRepository:
                 event_hash=event_hash,
             )
         )
+
+    async def is_frozen(self) -> bool:
+        async with self._lock:
+            return self._frozen
 
 
 def _audit_hash(sequence: int, event_type: str, body: str, previous_hash: bytes) -> bytes:

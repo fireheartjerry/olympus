@@ -1,0 +1,1 @@
+"""WebAuthn authority tests."""

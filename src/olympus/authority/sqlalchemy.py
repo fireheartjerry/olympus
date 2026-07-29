@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from olympus.authority.repository import (
@@ -17,6 +17,7 @@ from olympus.authority.repository import (
     Challenge,
     ChallengeConsumed,
     ChallengeInvalid,
+    Credential,
     FreezeReceipt,
     InMemoryAuthorityRepository,
     LeaseRequest,
@@ -30,6 +31,7 @@ from olympus.persistence.models import (
     GlobalFreezeRow,
     SecurityAuditEventRow,
     WebAuthnChallengeRow,
+    WebAuthnCredentialRow,
 )
 
 
@@ -91,6 +93,136 @@ class SqlAlchemyAuthorityRepository:
                 raise ChallengeInvalid("challenge has expired")
             row.consumed_at = now
             return _challenge_from_row(row)
+
+    async def get_challenge(self, challenge_id: str) -> Challenge:
+        async with self._sessions() as session:
+            row = await session.get(WebAuthnChallengeRow, challenge_id)
+            if row is None:
+                raise ChallengeInvalid("challenge does not exist")
+            return _challenge_from_row(row)
+
+    async def credential_count(self) -> int:
+        async with self._sessions() as session:
+            count = await session.scalar(
+                select(func.count())
+                .select_from(WebAuthnCredentialRow)
+                .where(WebAuthnCredentialRow.revoked_at.is_(None))
+            )
+            return int(count or 0)
+
+    async def get_credential(self, credential_id: bytes) -> Credential:
+        async with self._sessions() as session:
+            row = await session.get(WebAuthnCredentialRow, credential_id)
+            if row is None or row.revoked_at is not None:
+                raise AuthorityRepositoryError("credential is unavailable")
+            return _credential_from_row(row)
+
+    async def list_credentials(self) -> tuple[Credential, ...]:
+        async with self._sessions() as session:
+            rows = (
+                await session.scalars(
+                    select(WebAuthnCredentialRow).where(WebAuthnCredentialRow.revoked_at.is_(None))
+                )
+            ).all()
+            return tuple(_credential_from_row(row) for row in rows)
+
+    async def complete_registration(
+        self,
+        challenge_id: str,
+        challenge_digest: bytes,
+        credential: Credential,
+        now: datetime,
+    ) -> Credential:
+        async with self._sessions.begin() as session:
+            challenge = await self._consume_challenge_row(
+                session,
+                challenge_id,
+                challenge_digest,
+                now,
+            )
+            if challenge.purpose != "bootstrap-registration":
+                raise ChallengeInvalid("challenge purpose does not permit registration")
+            existing = await session.get(WebAuthnCredentialRow, credential.credential_id)
+            if existing is not None:
+                raise AuthorityRepositoryError("credential identity already exists")
+            session.add(
+                WebAuthnCredentialRow(
+                    credential_id=credential.credential_id,
+                    commander_id=credential.commander_id,
+                    public_key=credential.public_key,
+                    sign_count=credential.sign_count,
+                    created_at=credential.created_at,
+                    revoked_at=credential.revoked_at,
+                )
+            )
+            return credential
+
+    async def complete_authentication(
+        self,
+        challenge_id: str,
+        challenge_digest: bytes,
+        credential_id: bytes,
+        new_sign_count: int,
+        lease_request: LeaseRequest,
+        now: datetime,
+    ) -> AuthorityLease:
+        async with self._sessions.begin() as session:
+            authority, freeze = await self._locked_state(session)
+            if freeze.frozen:
+                raise AdmissionDenied("authority is frozen")
+            challenge = await self._consume_challenge_row(
+                session,
+                challenge_id,
+                challenge_digest,
+                now,
+            )
+            if challenge.purpose != "lease":
+                raise ChallengeInvalid("challenge purpose does not permit a lease")
+            credential = await session.get(
+                WebAuthnCredentialRow,
+                credential_id,
+                with_for_update=True,
+            )
+            if credential is None or credential.revoked_at is not None:
+                raise AuthorityRepositoryError("credential is unavailable")
+            if new_sign_count < credential.sign_count:
+                raise AuthorityRepositoryError("credential counter regressed")
+            credential.sign_count = new_sign_count
+            active_rows = (
+                await session.scalars(
+                    select(AuthorityLeaseRow)
+                    .where(AuthorityLeaseRow.revoked_at.is_(None))
+                    .with_for_update()
+                )
+            ).all()
+            for active in active_rows:
+                active.revoked_at = now
+                active.revocation_reason = "replaced"
+            authority.authority_epoch += 1
+            authority.updated_at = now
+            row = AuthorityLeaseRow(
+                lease_id=lease_request.lease_id,
+                authority_epoch=authority.authority_epoch,
+                commander_id=lease_request.commander_id,
+                guild_id=lease_request.guild_id,
+                channel_scope_digest=lease_request.channel_scope_digest,
+                credential_id=credential_id,
+                issued_at=lease_request.issued_at,
+                expires_at=lease_request.expires_at,
+            )
+            session.add(row)
+            await self._append_audit(
+                session,
+                "lease-issued",
+                {
+                    "authority_epoch": row.authority_epoch,
+                    "commander_id": row.commander_id,
+                    "guild_id": row.guild_id,
+                    "lease_id": row.lease_id,
+                },
+                now,
+            )
+            return _lease_from_row(row)
 
     async def issue_lease(self, request: LeaseRequest) -> AuthorityLease:
         async with self._sessions.begin() as session:
@@ -300,6 +432,27 @@ class SqlAlchemyAuthorityRepository:
             )
         )
 
+    async def _consume_challenge_row(
+        self,
+        session: AsyncSession,
+        challenge_id: str,
+        challenge_digest: bytes,
+        now: datetime,
+    ) -> WebAuthnChallengeRow:
+        row = await session.scalar(
+            select(WebAuthnChallengeRow)
+            .where(WebAuthnChallengeRow.challenge_id == challenge_id)
+            .with_for_update()
+        )
+        if row is None or not hmac.compare_digest(row.challenge_digest, challenge_digest):
+            raise ChallengeInvalid("challenge does not match")
+        if row.consumed_at is not None:
+            raise ChallengeConsumed("challenge was already consumed")
+        if now > row.expires_at:
+            raise ChallengeInvalid("challenge has expired")
+        row.consumed_at = now
+        return row
+
 
 def _challenge_from_row(row: WebAuthnChallengeRow) -> Challenge:
     return Challenge(
@@ -327,4 +480,15 @@ def _lease_from_row(row: AuthorityLeaseRow) -> AuthorityLease:
         expires_at=row.expires_at,
         revoked_at=row.revoked_at,
         revocation_reason=row.revocation_reason,
+    )
+
+
+def _credential_from_row(row: WebAuthnCredentialRow) -> Credential:
+    return Credential(
+        credential_id=row.credential_id,
+        commander_id=row.commander_id,
+        public_key=row.public_key,
+        sign_count=row.sign_count,
+        created_at=row.created_at,
+        revoked_at=row.revoked_at,
     )
