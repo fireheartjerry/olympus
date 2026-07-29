@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from nacl.signing import SigningKey
 
 from olympus.governance.authorization import (
     Action,
@@ -17,6 +18,14 @@ from olympus.governance.authorization import (
 )
 
 NOW = datetime(2026, 7, 29, tzinfo=UTC)
+CAPABILITY_KEY = SigningKey(b"c" * 32)
+
+
+def engine(ceiling: str = "50") -> AuthorizationEngine:
+    return AuthorizationEngine(
+        BudgetGovernor(monthly_ceiling_usd=Decimal(ceiling)),
+        capability_verification_keys={"capability-root": bytes(CAPABILITY_KEY.verify_key)},
+    )
 
 
 def action(**overrides: object) -> Action:
@@ -38,22 +47,28 @@ def approval(candidate: Action, **overrides: object) -> Approval:
         "action_digest": candidate.digest(),
         "issued_at": NOW,
         "expires_at": NOW + timedelta(minutes=5),
+        "signer_id": "capability-root",
+        "signature": b"unsigned",
     }
     values.update(overrides)
-    return Approval(**values)  # type: ignore[arg-type]
+    candidate_approval = Approval(**values)  # type: ignore[arg-type]
+    return replace(
+        candidate_approval,
+        signature=CAPABILITY_KEY.sign(candidate_approval.canonical_bytes()).signature,
+    )
 
 
 def test_literal_approval_budget_and_audit_allow_exact_action_once() -> None:
-    engine = AuthorizationEngine(BudgetGovernor(monthly_ceiling_usd=Decimal("50")))
+    authorization = engine()
     candidate = action()
 
-    decision = engine.authorize(candidate, approval=approval(candidate), now=NOW)
+    decision = authorization.authorize(candidate, approval=approval(candidate), now=NOW)
 
     assert decision.allowed
-    assert engine.budget.spent_usd == Decimal("2.00")
-    assert engine.audit.verify()
+    assert authorization.budget.spent_usd == Decimal("2.00")
+    assert authorization.audit.verify()
     with pytest.raises(AuthorizationDenied, match="already consumed"):
-        engine.authorize(candidate, approval=approval(candidate), now=NOW)
+        authorization.authorize(candidate, approval=approval(candidate), now=NOW)
 
 
 @pytest.mark.parametrize(
@@ -66,10 +81,18 @@ def test_literal_approval_budget_and_audit_allow_exact_action_once() -> None:
 )
 def test_approval_cannot_be_replayed_for_altered_payload(altered: Action) -> None:
     original = action()
-    engine = AuthorizationEngine(BudgetGovernor(monthly_ceiling_usd=Decimal("50")))
+    authorization = engine()
 
     with pytest.raises(AuthorizationDenied, match="literal action"):
-        engine.authorize(altered, approval=approval(original), now=NOW)
+        authorization.authorize(altered, approval=approval(original), now=NOW)
+
+
+def test_unsigned_or_modified_capability_is_rejected() -> None:
+    candidate = action()
+    forged = replace(approval(candidate), signature=b"forged")
+
+    with pytest.raises(AuthorizationDenied, match="signed approval"):
+        engine().authorize(candidate, approval=forged, now=NOW)
 
 
 def test_transitive_untrusted_or_model_taint_cannot_reach_privileged_sink() -> None:
@@ -81,7 +104,7 @@ def test_transitive_untrusted_or_model_taint_cannot_reach_privileged_sink() -> N
     )
 
     with pytest.raises(AuthorizationDenied, match="tainted"):
-        AuthorizationEngine(BudgetGovernor(monthly_ceiling_usd=Decimal("50"))).authorize(
+        engine().authorize(
             candidate,
             approval=approval(candidate),
             now=NOW,
@@ -89,32 +112,35 @@ def test_transitive_untrusted_or_model_taint_cannot_reach_privileged_sink() -> N
 
 
 def test_hard_monthly_spending_ceiling_cannot_be_exceeded() -> None:
-    engine = AuthorizationEngine(BudgetGovernor(monthly_ceiling_usd=Decimal("5")))
+    authorization = engine("5")
     first = action(action_id="first", variable_cost_usd=Decimal("4"))
     second = action(action_id="second", variable_cost_usd=Decimal("2"))
-    engine.authorize(first, approval=approval(first), now=NOW)
+    authorization.authorize(first, approval=approval(first), now=NOW)
 
     with pytest.raises(AuthorizationDenied, match="spending ceiling"):
-        engine.authorize(
+        authorization.authorize(
             second,
-            approval=replace(
-                approval(second),
-                approval_id="approval-2",
-            ),
+            approval=approval(second, approval_id="approval-2"),
             now=NOW,
         )
 
 
 def test_schedule_is_bounded_by_scope_expiry_and_run_count() -> None:
-    schedule = ScheduleCapability(
+    unsigned_schedule = ScheduleCapability(
         capability_id="schedule-1",
         action_kinds=frozenset({"briefing.create"}),
         scope={"guild_id": "100000000000000001"},
         issued_at=NOW,
         expires_at=NOW + timedelta(days=30),
         max_runs=2,
+        signer_id="capability-root",
+        signature=b"unsigned",
     )
-    engine = AuthorizationEngine(BudgetGovernor(monthly_ceiling_usd=Decimal("50")))
+    schedule = replace(
+        unsigned_schedule,
+        signature=CAPABILITY_KEY.sign(unsigned_schedule.canonical_bytes()).signature,
+    )
+    authorization = engine()
     briefing = action(
         classification=ActionClass.AUTONOMOUS,
         kind="briefing.create",
@@ -122,20 +148,27 @@ def test_schedule_is_bounded_by_scope_expiry_and_run_count() -> None:
         variable_cost_usd=Decimal("0"),
     )
 
-    assert engine.authorize(briefing, schedule=schedule, now=NOW).allowed
-    assert engine.authorize(briefing, schedule=schedule, now=NOW).allowed
+    assert authorization.authorize(briefing, schedule=schedule, now=NOW).allowed
+    assert authorization.authorize(briefing, schedule=schedule, now=NOW).allowed
     with pytest.raises(AuthorizationDenied, match="run limit"):
-        engine.authorize(briefing, schedule=schedule, now=NOW)
+        authorization.authorize(briefing, schedule=schedule, now=NOW)
+    unsigned_other = ScheduleCapability(
+        capability_id="schedule-2",
+        action_kinds=frozenset({"briefing.create"}),
+        scope={"guild_id": "100000000000000001"},
+        issued_at=NOW,
+        expires_at=NOW + timedelta(days=30),
+        max_runs=1,
+        signer_id="capability-root",
+        signature=b"unsigned",
+    )
+    signed_other = replace(
+        unsigned_other,
+        signature=CAPABILITY_KEY.sign(unsigned_other.canonical_bytes()).signature,
+    )
     with pytest.raises(AuthorizationDenied, match="scope"):
-        AuthorizationEngine(BudgetGovernor(monthly_ceiling_usd=Decimal("50"))).authorize(
+        engine().authorize(
             replace(briefing, payload={"guild_id": "elsewhere"}),
-            schedule=ScheduleCapability(
-                capability_id="schedule-2",
-                action_kinds=frozenset({"briefing.create"}),
-                scope={"guild_id": "100000000000000001"},
-                issued_at=NOW,
-                expires_at=NOW + timedelta(days=30),
-                max_runs=1,
-            ),
+            schedule=signed_other,
             now=NOW,
         )

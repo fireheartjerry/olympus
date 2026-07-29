@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from nacl.signing import SigningKey
 
 from olympus.governance.authorization import (
     Action,
@@ -21,16 +22,23 @@ from olympus.operations.autonomy import (
 )
 
 NOW = datetime(2026, 7, 29, tzinfo=UTC)
+CAPABILITY_KEY = SigningKey(b"s" * 32)
 
 
 def schedule() -> ScheduleCapability:
-    return ScheduleCapability(
+    unsigned = ScheduleCapability(
         capability_id="chief-of-staff-30d",
         action_kinds=frozenset({"briefing.create", "repair.reversible"}),
         scope={"owner": "628053765181800448"},
         issued_at=NOW,
         expires_at=NOW + timedelta(days=30),
         max_runs=60,
+        signer_id="schedule-root",
+        signature=b"unsigned",
+    )
+    return replace(
+        unsigned,
+        signature=CAPABILITY_KEY.sign(unsigned.canonical_bytes()).signature,
     )
 
 
@@ -52,7 +60,10 @@ def action(kind: str = "briefing.create") -> Action:
 
 def controller() -> HighAutonomyController:
     return HighAutonomyController(
-        authorization=AuthorizationEngine(BudgetGovernor(monthly_ceiling_usd=Decimal("50"))),
+        authorization=AuthorizationEngine(
+            BudgetGovernor(monthly_ceiling_usd=Decimal("50")),
+            capability_verification_keys={"schedule-root": bytes(CAPABILITY_KEY.verify_key)},
+        ),
         activation_verifier=lambda proof: proof.proof_digest == "face-id-bound-digest",
         maximum_followups=10,
         maximum_followup_horizon=timedelta(days=30),

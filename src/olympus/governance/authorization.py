@@ -5,6 +5,9 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
+from nacl.exceptions import BadSignatureError
+from nacl.signing import VerifyKey
+
 
 class AuthorizationDenied(PermissionError):
     pass
@@ -82,11 +85,28 @@ class Approval:
     action_digest: str
     issued_at: datetime
     expires_at: datetime
+    signer_id: str
+    signature: bytes
 
     def __post_init__(self) -> None:
-        if not self.approval_id.strip() or len(self.action_digest) != 64:
+        if (
+            not self.approval_id.strip()
+            or len(self.action_digest) != 64
+            or not self.signer_id.strip()
+        ):
             raise ValueError("approval identity and SHA-256 action digest are required")
         _bounded_interval(self.issued_at, self.expires_at, "approval")
+
+    def canonical_bytes(self) -> bytes:
+        return _signed_capability_bytes(
+            {
+                "action_digest": self.action_digest,
+                "approval_id": self.approval_id,
+                "expires_at": self.expires_at.isoformat(),
+                "issued_at": self.issued_at.isoformat(),
+                "signer_id": self.signer_id,
+            }
+        )
 
 
 @dataclass(frozen=True)
@@ -97,13 +117,33 @@ class ScheduleCapability:
     issued_at: datetime
     expires_at: datetime
     max_runs: int
+    signer_id: str
+    signature: bytes
 
     def __post_init__(self) -> None:
-        if not self.capability_id.strip() or not self.action_kinds or not self.scope:
+        if (
+            not self.capability_id.strip()
+            or not self.action_kinds
+            or not self.scope
+            or not self.signer_id.strip()
+        ):
             raise ValueError("schedule identity, action kinds, and scope are required")
         if self.max_runs < 1:
             raise ValueError("schedule max_runs must be positive")
         _bounded_interval(self.issued_at, self.expires_at, "schedule")
+
+    def canonical_bytes(self) -> bytes:
+        return _signed_capability_bytes(
+            {
+                "action_kinds": sorted(self.action_kinds),
+                "capability_id": self.capability_id,
+                "expires_at": self.expires_at.isoformat(),
+                "issued_at": self.issued_at.isoformat(),
+                "max_runs": self.max_runs,
+                "scope": self.scope,
+                "signer_id": self.signer_id,
+            }
+        )
 
 
 @dataclass(frozen=True)
@@ -174,9 +214,15 @@ class BudgetGovernor:
 
 
 class AuthorizationEngine:
-    def __init__(self, budget: BudgetGovernor) -> None:
+    def __init__(
+        self,
+        budget: BudgetGovernor,
+        *,
+        capability_verification_keys: dict[str, bytes] | None = None,
+    ) -> None:
         self.budget = budget
         self.audit = AuthorizationAudit()
+        self._capability_verification_keys = dict(capability_verification_keys or {})
         self._consumed_approvals: set[str] = set()
         self._schedule_runs: dict[str, int] = {}
 
@@ -226,6 +272,12 @@ class AuthorizationEngine:
             raise AuthorizationDenied("literal action approval is required")
         if approval.approval_id in self._consumed_approvals:
             raise AuthorizationDenied("approval was already consumed")
+        self._verify_capability(
+            approval.signer_id,
+            approval.canonical_bytes(),
+            approval.signature,
+            "approval",
+        )
         if now < approval.issued_at or now >= approval.expires_at:
             raise AuthorizationDenied("approval is not currently valid")
         if approval.action_digest != action_digest:
@@ -237,6 +289,12 @@ class AuthorizationEngine:
         schedule: ScheduleCapability,
         now: datetime,
     ) -> None:
+        self._verify_capability(
+            schedule.signer_id,
+            schedule.canonical_bytes(),
+            schedule.signature,
+            "schedule",
+        )
         if now < schedule.issued_at or now >= schedule.expires_at:
             raise AuthorizationDenied("schedule is not currently valid")
         if action.kind not in schedule.action_kinds:
@@ -245,6 +303,21 @@ class AuthorizationEngine:
             raise AuthorizationDenied("action payload escapes schedule scope")
         if self._schedule_runs.get(schedule.capability_id, 0) >= schedule.max_runs:
             raise AuthorizationDenied("schedule run limit was reached")
+
+    def _verify_capability(
+        self,
+        signer_id: str,
+        payload: bytes,
+        signature: bytes,
+        capability: str,
+    ) -> None:
+        key = self._capability_verification_keys.get(signer_id)
+        if key is None or not signature:
+            raise AuthorizationDenied(f"signed {capability} verification root is unavailable")
+        try:
+            VerifyKey(key).verify(payload, signature)
+        except (ValueError, BadSignatureError) as exc:
+            raise AuthorizationDenied(f"signed {capability} is invalid") from exc
 
 
 def _audit_hash(
@@ -269,6 +342,10 @@ def _bounded_interval(issued_at: datetime, expires_at: datetime, name: str) -> N
     _require_aware(expires_at, f"{name}.expires_at")
     if expires_at <= issued_at:
         raise ValueError(f"{name} must expire after issuance")
+
+
+def _signed_capability_bytes(value: dict[str, object]) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
 
 
 def _require_aware(value: datetime, field_name: str) -> None:
