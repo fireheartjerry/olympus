@@ -258,7 +258,7 @@ Run:
 ```powershell
 ssh neurips-vps 'set -eu
 cd /home/ubuntu/olympus
-pwsh -NoLogo -NoProfile \
+PATH="$HOME/.local/bin:$PATH" "$HOME/.local/bin/pwsh" -NoLogo -NoProfile \
   -File deploy/helm/olympus-foundation/tests/verify.ps1 \
   -HelmPath "$HOME/.local/bin/helm" \
   -KubeconformPath "$HOME/.local/bin/kubeconform" \
