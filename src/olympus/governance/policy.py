@@ -1,6 +1,8 @@
 import json
-from dataclasses import asdict, dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 
 from nacl.exceptions import BadSignatureError
 from nacl.signing import VerifyKey
@@ -22,7 +24,7 @@ class PolicyBundle:
     sequence: int
     issued_at: datetime
     expires_at: datetime
-    policies: dict[str, dict[str, object]]
+    policies: Mapping[str, Mapping[str, object]]
 
     def __post_init__(self) -> None:
         if not self.release_id.strip():
@@ -35,11 +37,22 @@ class PolicyBundle:
             raise ValueError("policy release must expire after issuance")
         if set(self.policies) != REQUIRED_POLICY_DOMAINS:
             raise ValueError("policy release must contain every governance domain exactly once")
+        object.__setattr__(
+            self,
+            "policies",
+            MappingProxyType(
+                {name: _freeze_mapping(policy) for name, policy in self.policies.items()}
+            ),
+        )
 
     def canonical_bytes(self) -> bytes:
-        value = asdict(self)
-        value["issued_at"] = self.issued_at.isoformat()
-        value["expires_at"] = self.expires_at.isoformat()
+        value = {
+            "expires_at": self.expires_at.isoformat(),
+            "issued_at": self.issued_at.isoformat(),
+            "policies": _json_value(self.policies),
+            "release_id": self.release_id,
+            "sequence": self.sequence,
+        }
         return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
 
     @classmethod
@@ -124,3 +137,23 @@ class PolicyKernel:
 def _require_aware(value: datetime, field_name: str) -> None:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{field_name} must be timezone-aware")
+
+
+def _freeze_mapping(value: Mapping[str, object]) -> Mapping[str, object]:
+    return MappingProxyType({key: _freeze_value(item) for key, item in value.items()})
+
+
+def _freeze_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return _freeze_mapping(value)
+    if isinstance(value, list | tuple):
+        return tuple(_freeze_value(item) for item in value)
+    return value
+
+
+def _json_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _json_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_json_value(item) for item in value]
+    return value

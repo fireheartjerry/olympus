@@ -63,6 +63,8 @@ def test_valid_signed_bundle_activates_all_governance_domains() -> None:
     assert activated.sequence == 1
     assert set(activated.policies) == set(REQUIRED_POLICIES)
     assert policy.active_release == activated
+    with pytest.raises(TypeError):
+        activated.policies["budget"]["monthly_variable_usd"] = 5000
 
 
 @pytest.mark.parametrize("mutation", ["payload", "signature", "signer"])
