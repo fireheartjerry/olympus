@@ -1,0 +1,30 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: olympus-control
+  annotations:
+    helm.sh/resource-policy: keep
+value: 100000
+globalDefault: false
+description: Olympus control, policy, audit, Temporal, and PostgreSQL
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: olympus-platform
+  annotations:
+    helm.sh/resource-policy: keep
+value: 50000
+globalDefault: false
+description: Olympus observability and platform controllers
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: olympus-worker
+  annotations:
+    helm.sh/resource-policy: keep
+value: -10000
+globalDefault: false
+preemptionPolicy: Never
+description: Lowest-priority Olympus agent, browser, build, and verifier jobs

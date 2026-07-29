@@ -1,0 +1,29 @@
+{{- $requestsCpuMillicores := .Values.workerQuota.requestsCpuMillicores }}
+{{- if not (or (and (kindIs "float64" $requestsCpuMillicores) (eq $requestsCpuMillicores (float64 3500))) (and (kindIs "int64" $requestsCpuMillicores) (eq $requestsCpuMillicores (int64 3500))) (and (kindIs "int" $requestsCpuMillicores) (eq $requestsCpuMillicores (int 3500))) ) }}
+{{- fail "workerQuota.requestsCpuMillicores must remain 3500" }}
+{{- end }}
+{{- $requestsMemoryMib := .Values.workerQuota.requestsMemoryMib }}
+{{- if not (or (and (kindIs "float64" $requestsMemoryMib) (eq $requestsMemoryMib (float64 8704))) (and (kindIs "int64" $requestsMemoryMib) (eq $requestsMemoryMib (int64 8704))) (and (kindIs "int" $requestsMemoryMib) (eq $requestsMemoryMib (int 8704))) ) }}
+{{- fail "workerQuota.requestsMemoryMib must remain 8704" }}
+{{- end }}
+{{- $limitsMemoryMib := .Values.workerQuota.limitsMemoryMib }}
+{{- if not (or (and (kindIs "float64" $limitsMemoryMib) (eq $limitsMemoryMib (float64 10752))) (and (kindIs "int64" $limitsMemoryMib) (eq $limitsMemoryMib (int64 10752))) (and (kindIs "int" $limitsMemoryMib) (eq $limitsMemoryMib (int 10752))) ) }}
+{{- fail "workerQuota.limitsMemoryMib must remain 10752" }}
+{{- end }}
+{{- $pods := .Values.workerQuota.pods }}
+{{- if not (or (and (kindIs "float64" $pods) (eq $pods (float64 8))) (and (kindIs "int64" $pods) (eq $pods (int64 8))) (and (kindIs "int" $pods) (eq $pods (int 8))) ) }}
+{{- fail "workerQuota.pods must remain 8" }}
+{{- end }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: olympus-local-worker-budget
+  namespace: {{ .Values.namespaces.workersLocal }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  hard:
+    requests.cpu: {{ printf "%dm" (int .Values.workerQuota.requestsCpuMillicores) | quote }}
+    requests.memory: {{ printf "%dMi" (int .Values.workerQuota.requestsMemoryMib) | quote }}
+    limits.memory: {{ printf "%dMi" (int .Values.workerQuota.limitsMemoryMib) | quote }}
+    pods: {{ printf "%d" (int .Values.workerQuota.pods) | quote }}

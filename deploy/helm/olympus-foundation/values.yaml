@@ -1,0 +1,11 @@
+namespaces:
+  control: agent-control
+  data: agent-data
+  platform: agent-platform
+  workersLocal: agent-workers-local
+
+workerQuota:
+  requestsCpuMillicores: 3500
+  requestsMemoryMib: 8704
+  limitsMemoryMib: 10752
+  pods: 8

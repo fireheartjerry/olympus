@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Olympus foundation capacity guardrails",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["namespaces", "workerQuota"],
+  "properties": {
+    "namespaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["control", "data", "platform", "workersLocal"],
+      "properties": {
+        "control": {"type": "string", "const": "agent-control"},
+        "data": {"type": "string", "const": "agent-data"},
+        "platform": {"type": "string", "const": "agent-platform"},
+        "workersLocal": {"type": "string", "const": "agent-workers-local"}
+      }
+    },
+    "workerQuota": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestsCpuMillicores",
+        "requestsMemoryMib",
+        "limitsMemoryMib",
+        "pods"
+      ],
+      "properties": {
+        "requestsCpuMillicores": {"type": "integer", "const": 3500},
+        "requestsMemoryMib": {"type": "integer", "const": 8704},
+        "limitsMemoryMib": {"type": "integer", "const": 10752},
+        "pods": {"type": "integer", "const": 8}
+      }
+    }
+  }
+}
