@@ -21,6 +21,8 @@ class TrustLabel(StrEnum):
 class JobStatus(StrEnum):
     ACCEPTED = "accepted"
     COMPILED = "compiled"
+    CANCELLED = "cancelled"
+    FROZEN = "frozen"
     FAILED = "failed"
 
 
