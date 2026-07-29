@@ -6,7 +6,7 @@
 
 **Architecture:** GitHub remains the canonical Git remote. The verified local `main` is pushed, cloned by the non-root `ubuntu` account, and recreated entirely from tracked files and immutable tool versions; no local secret, cache, or generated state is copied. After repository verification, the official Codex standalone CLI is installed and authenticated on the VPS so Codex Desktop can start its remote app server through the existing `neurips-vps` SSH alias.
 
-**Tech Stack:** Git/GitHub, OpenSSH, uv 0.11.19, CPython 3.13.13, Ruff, mypy, pytest, Helm 3.17.3, kubeconform 0.8.0, Codex CLI and Codex Desktop remote connections.
+**Tech Stack:** Git/GitHub, OpenSSH, uv 0.11.19, CPython 3.13.13, Ruff, mypy, pytest, Helm 3.17.3, kubeconform 0.8.0, PowerShell 7.6.4, Codex CLI and Codex Desktop remote connections.
 
 ---
 
@@ -148,6 +148,8 @@ Expected: 39 locked packages resolve and the project `.venv` is created.
 **Files:**
 - Create: `/home/ubuntu/.local/bin/helm`
 - Create: `/home/ubuntu/.local/bin/kubeconform`
+- Create: `/home/ubuntu/.local/bin/pwsh`
+- Create: `/home/ubuntu/.local/share/powershell/7.6.4/`
 
 - [ ] **Step 1: Install checksum-verified Helm 3.17.3**
 
@@ -188,6 +190,29 @@ install --mode=0755 "$temp_dir/kubeconform" "$HOME/.local/bin/kubeconform"
 ```
 
 Expected: kubeconform reports `v0.8.0`.
+
+- [ ] **Step 3: Install checksum-verified PowerShell 7.6.4**
+
+Run:
+
+```powershell
+ssh neurips-vps 'set -eu
+temp_dir="$(mktemp -d)"
+trap "rm -rf -- \"$temp_dir\"" EXIT
+archive="$temp_dir/powershell.tar.gz"
+install_dir="$HOME/.local/share/powershell/7.6.4"
+curl --fail --location --retry 3 --silent --show-error \
+  https://github.com/PowerShell/PowerShell/releases/download/v7.6.4/powershell-7.6.4-linux-x64.tar.gz \
+  --output "$archive"
+echo "4471b5a36bfe86ec7af8525d36bb1cacba0128e7aac22d05cc064bc00e604721  $archive" | sha256sum --check --status
+install --directory --mode=0755 "$install_dir"
+tar --extract --gzip --file "$archive" --directory "$install_dir"
+chmod 0755 "$install_dir/pwsh"
+ln --symbolic --force "$install_dir/pwsh" "$HOME/.local/bin/pwsh"
+"$HOME/.local/bin/pwsh" --version'
+```
+
+Expected: `PowerShell 7.6.4`.
 
 ### Task 5: Verify the Complete Repository on the VPS
 

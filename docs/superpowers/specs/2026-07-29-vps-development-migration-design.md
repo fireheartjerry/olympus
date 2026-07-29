@@ -28,6 +28,7 @@ The migration will:
    - CPython 3.13.13 through uv
    - Helm 3.17.3
    - kubeconform 0.8.0
+   - PowerShell 7.6.4
 4. Recreate the Python environment from `uv.lock`.
 5. Run build, formatting, lint, strict typing, test, distribution, and Helm
    guardrail verification on the VPS.
@@ -72,7 +73,10 @@ available. The migration must fail closed on a checksum mismatch.
 
 uv installs CPython 3.13.13 and creates the project `.venv` from the committed
 lockfile. Helm and kubeconform use the exact versions and checksums already
-declared by the repository CI workflow.
+declared by the repository CI workflow. The repository's Helm verifier is a
+PowerShell script, so the matching current PowerShell 7.6.4 runtime is installed
+from its checksum-verified portable Linux archive under the `ubuntu` user's
+home directory.
 
 Agent CLI authentication is not copied from the local machine. Codex or Claude
 CLI installation and interactive authentication may be added after the
