@@ -39,6 +39,7 @@ class WebAuthnChallengeRow(Base):
     __tablename__ = "webauthn_challenges"
 
     challenge_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    challenge_value: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
     challenge_digest: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False, unique=True)
     purpose: Mapped[str] = mapped_column(String(32), nullable=False)
     commander_id: Mapped[str] = mapped_column(String(20), nullable=False)

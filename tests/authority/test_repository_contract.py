@@ -18,6 +18,7 @@ NOW = datetime(2026, 7, 29, tzinfo=UTC)
 def challenge() -> Challenge:
     return Challenge(
         challenge_id="challenge-1",
+        challenge_value=b"z" * 32,
         challenge_digest=b"a" * 32,
         purpose="lease",
         commander_id="628053765181800448",

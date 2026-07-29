@@ -27,6 +27,7 @@ class AdmissionDenied(AuthorityRepositoryError):
 @dataclass(frozen=True)
 class Challenge:
     challenge_id: str
+    challenge_value: bytes
     challenge_digest: bytes
     purpose: str
     commander_id: str
@@ -36,6 +37,7 @@ class Challenge:
     consumed_at: datetime | None = None
 
     def __post_init__(self) -> None:
+        _require_digest(self.challenge_value, "challenge_value")
         _require_digest(self.challenge_digest, "challenge_digest")
         _require_digest(self.payload_digest, "payload_digest")
         _require_aware(self.issued_at, "issued_at")

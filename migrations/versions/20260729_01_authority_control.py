@@ -85,6 +85,7 @@ def upgrade() -> None:
     op.create_table(
         "webauthn_challenges",
         sa.Column("challenge_id", sa.String(length=64), nullable=False),
+        sa.Column("challenge_value", sa.LargeBinary(length=32), nullable=False),
         sa.Column("challenge_digest", sa.LargeBinary(length=32), nullable=False),
         sa.Column("purpose", sa.String(length=32), nullable=False),
         sa.Column("commander_id", sa.String(length=20), nullable=False),

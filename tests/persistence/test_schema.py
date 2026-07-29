@@ -50,3 +50,4 @@ def test_interaction_id_and_challenge_digest_are_unique() -> None:
 
     assert interactions.c.interaction_id.unique is True
     assert challenges.c.challenge_digest.unique is True
+    assert challenges.c.challenge_value.type.length == 32

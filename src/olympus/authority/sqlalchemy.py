@@ -59,6 +59,7 @@ class SqlAlchemyAuthorityRepository:
             session.add(
                 WebAuthnChallengeRow(
                     challenge_id=challenge.challenge_id,
+                    challenge_value=challenge.challenge_value,
                     challenge_digest=challenge.challenge_digest,
                     purpose=challenge.purpose,
                     commander_id=challenge.commander_id,
@@ -303,6 +304,7 @@ class SqlAlchemyAuthorityRepository:
 def _challenge_from_row(row: WebAuthnChallengeRow) -> Challenge:
     return Challenge(
         challenge_id=row.challenge_id,
+        challenge_value=row.challenge_value,
         challenge_digest=row.challenge_digest,
         purpose=row.purpose,
         commander_id=row.commander_id,
