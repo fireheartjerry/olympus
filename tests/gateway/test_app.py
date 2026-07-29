@@ -247,6 +247,29 @@ def test_production_environment_is_rejected() -> None:
         )
 
 
+def test_development_gateway_rejects_public_bind_with_literal_validation() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        GatewaySettings(
+            environment="development",
+            dev_command_token=TEST_COMMAND_TOKEN,
+            http_host="0.0.0.0",  # noqa: S104 - intentional rejected public bind
+        )
+
+    assert exc_info.value.errors()[0]["type"] == "literal_error"
+
+
+@pytest.mark.parametrize("port", [1023, 65536])
+def test_development_gateway_rejects_privileged_or_invalid_ports(port: int) -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        GatewaySettings(
+            environment="development",
+            dev_command_token=TEST_COMMAND_TOKEN,
+            http_port=port,
+        )
+
+    assert exc_info.value.errors()[0]["type"] in {"greater_than_equal", "less_than_equal"}
+
+
 def test_token_shorter_than_32_characters_is_rejected() -> None:
     with pytest.raises(ValidationError):
         GatewaySettings(environment="test", dev_command_token=SHORT_TEST_COMMAND_TOKEN)

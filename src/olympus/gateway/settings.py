@@ -11,6 +11,8 @@ class GatewaySettings(BaseSettings):
     dev_command_token: SecretStr = Field(min_length=32, max_length=256)
     temporal_address: str = "127.0.0.1:7233"
     temporal_task_queue: str = "olympus-command-v1"
+    http_host: Literal["127.0.0.1"] = "127.0.0.1"
+    http_port: int = Field(default=8080, ge=1024, le=65535)
 
     @field_validator("dev_command_token")
     @classmethod
