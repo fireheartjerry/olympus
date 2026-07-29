@@ -13,7 +13,7 @@ from olympus.contracts.commands import (
 )
 from olympus.gateway.app import CommandStarter, TemporalCommandStarter, create_app
 from olympus.gateway.settings import GatewaySettings
-from olympus.workflows.command import CommandWorkflow
+from olympus.workflows.command import COMMAND_WORKFLOW_EXECUTION_TIMEOUT, CommandWorkflow
 
 TEST_COMMAND_TOKEN = "test-token-with-at-least-32-bytes"
 SHORT_TEST_COMMAND_TOKEN = "too-short"
@@ -103,6 +103,40 @@ def test_command_rejects_non_ascii_authorization_as_unauthorized() -> None:
 
     assert response.status_code == 401
     assert response.json() == {"detail": "invalid development command token"}
+
+
+@pytest.mark.parametrize(
+    "authorization_headers",
+    [
+        [
+            ("Authorization", f"Bearer {TEST_COMMAND_TOKEN}"),
+            ("Authorization", "Bearer wrong-token-with-at-least-32-bytes"),
+        ],
+        [
+            ("Authorization", "Bearer wrong-token-with-at-least-32-bytes"),
+            ("Authorization", f"Bearer {TEST_COMMAND_TOKEN}"),
+        ],
+    ],
+)
+def test_command_rejects_duplicate_authorization_headers_without_starting_workflow(
+    authorization_headers: list[tuple[str, str]],
+) -> None:
+    starter = FakeStarter()
+    client = make_client(starter)
+
+    response = client.post(
+        "/v1/commands",
+        headers=[
+            *authorization_headers,
+            ("X-Olympus-Commander", "discord-user-123"),
+            ("X-Olympus-Authority-Lease", "lease-456"),
+        ],
+        json={"command": "inspect the graph"},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "invalid development command token"}
+    assert starter.commands == []
 
 
 def test_command_requires_literal_authority_headers() -> None:
@@ -235,6 +269,7 @@ async def test_temporal_starter_starts_the_command_workflow() -> None:
         command,
         id="job-123",
         task_queue="test-command-queue",
+        execution_timeout=COMMAND_WORKFLOW_EXECUTION_TIMEOUT,
     )
     assert result == CommandAccepted(job_id="job-123")
 

@@ -23,9 +23,10 @@ The local gate was run against the implementation worktree on 2026-07-28.
 
 - `uv lock --check`, locked dependency sync, Ruff format check, Ruff lint, and
   strict mypy completed successfully.
-- `uv run pytest -W error` completed with **93 passed**. This includes the
-  time-skipping Temporal integration test, which starts a local test worker
-  and proves the workflow/activity boundary without a Temporal CLI server.
+- `uv run pytest -W error` completed with **97 passed**. This includes the
+  Temporal test-server integration tests, which start local test workers and
+  prove both the workflow/activity boundary and the bounded unavailable-activity
+  deadline without a Temporal CLI server.
 - Helm 3.17.3 and kubeconform 0.8.0 completed the hardened verifier using
   Kubernetes **1.36.1** strict schemas pinned at
   `05eeed51991935dd1f47cd3b3682de4e8af233f3`: **8/8 rendered resources**

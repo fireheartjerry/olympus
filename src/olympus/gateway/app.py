@@ -9,7 +9,7 @@ from temporalio.client import Client
 
 from olympus.contracts.commands import CommandAccepted, CommandEnvelope, CommandRequest
 from olympus.gateway.settings import GatewaySettings
-from olympus.workflows.command import CommandWorkflow
+from olympus.workflows.command import COMMAND_WORKFLOW_EXECUTION_TIMEOUT, CommandWorkflow
 
 _AUTHORITY_HEADER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
@@ -29,6 +29,7 @@ class TemporalCommandStarter:
             command,
             id=command.job_id,
             task_queue=self._task_queue,
+            execution_timeout=COMMAND_WORKFLOW_EXECUTION_TIMEOUT,
         )
         return CommandAccepted(job_id=command.job_id)
 
@@ -42,9 +43,11 @@ def _require_single_authority_header(values: list[str]) -> str:
     return values[0]
 
 
-def _matches_development_token(authorization: str | None, expected_token: str) -> bool:
+def _matches_development_token(authorization_values: list[str] | None, expected_token: str) -> bool:
+    if authorization_values is None or len(authorization_values) != 1:
+        return False
     try:
-        received = (authorization or "").encode("ascii")
+        received = authorization_values[0].encode("ascii")
         expected = f"Bearer {expected_token}".encode("ascii")
     except UnicodeEncodeError:
         return False
@@ -73,7 +76,7 @@ def create_app(settings: GatewaySettings, starter: CommandStarter) -> FastAPI:
             list[str],
             Header(alias="X-Olympus-Authority-Lease"),
         ],
-        authorization: Annotated[str | None, Header()] = None,
+        authorization: Annotated[list[str] | None, Header()] = None,
     ) -> CommandAccepted:
         if not _matches_development_token(
             authorization,

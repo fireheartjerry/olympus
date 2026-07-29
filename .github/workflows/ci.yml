@@ -31,6 +31,15 @@ jobs:
         run: uv lock --check
       - name: Install locked dependencies
         run: uv sync --locked --all-groups
+      - name: Build with the locked isolated backend
+        run: |
+          export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/olympus-build-environment"
+          uv build --no-cache --out-dir "$RUNNER_TEMP/olympus-dist"
+      - name: Import from a fresh locked runtime environment
+        run: |
+          export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/olympus-runtime-environment"
+          uv sync --locked --no-dev
+          "$UV_PROJECT_ENVIRONMENT/bin/python" -c "import olympus; assert olympus.__version__ == '0.1.0'"
       - name: Check formatting
         run: uv run ruff format --check src tests
       - name: Lint
