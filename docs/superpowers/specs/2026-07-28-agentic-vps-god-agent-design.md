@@ -1,10 +1,12 @@
-# Agentic VPS God Agent — Design Specification
+# Olympus — Agentic VPS God Agent Design Specification
 
 **Status:** Approved
 
 **Date:** 2026-07-28
 
 **Owner:** Jerry
+
+**Project codename:** Olympus
 
 **Deployment target:** OVH VPS-4 `vps-41e741fc.vps.ovh.ca` (`144.217.94.114`), Ubuntu, with elastic cloud workers
 
