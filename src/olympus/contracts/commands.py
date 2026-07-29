@@ -86,3 +86,11 @@ class CommandEnvelope:
             or parsed_received_at.isoformat() != self.received_at
         ):
             raise ValueError("received_at must be a canonical ISO-8601 timestamp")
+
+
+@dataclass(frozen=True)
+class CompiledJobReceipt:
+    job_id: str
+    status: JobStatus
+    node_count: int
+    graph_digest: str
