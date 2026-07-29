@@ -12,6 +12,17 @@ from olympus.contracts.commands import (
 )
 
 
+def test_command_envelope_requires_discord_identity_evidence() -> None:
+    with pytest.raises(ValueError, match="Discord identity evidence"):
+        CommandEnvelope(
+            job_id="job-1",
+            commander_id="628053765181800448",
+            authority_lease_id="lease-1",
+            command_text="inspect",
+            received_at="2026-07-29T00:00:00+00:00",
+        )
+
+
 def test_command_request_strips_surrounding_whitespace() -> None:
     request = CommandRequest(command="  inspect the active graph  ")
     assert request.command == "inspect the active graph"
