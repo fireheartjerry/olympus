@@ -16,9 +16,11 @@ capacity or namespace value either. The quota namespace is sourced solely from
 Run the reproducible chart verification with portable or installed tools:
 
 ```powershell
-pwsh deploy/helm/olympus-foundation/tests/verify.ps1 \
-  -HelmPath <path-to-helm> \
-  -KubeconformPath <path-to-kubeconform>
+$env:OLYMPUS_HELM_PATH = (Get-Command helm -ErrorAction Stop).Source
+$env:OLYMPUS_KUBECONFORM_PATH = (Get-Command kubeconform -ErrorAction Stop).Source
+pwsh -NoLogo -NoProfile -File deploy/helm/olympus-foundation/tests/verify.ps1 `
+  -HelmPath $env:OLYMPUS_HELM_PATH `
+  -KubeconformPath $env:OLYMPUS_KUBECONFORM_PATH
 ```
 
 ## Singleton lifecycle
@@ -34,5 +36,6 @@ operation after dependent workloads have been handled.
 The `olympus.dev/default-deny-network: "required"` label is a compatibility
 marker, not network enforcement. This chart installs no `NetworkPolicy`.
 Namespaces are annotated as `network-policy-status: not-installed` and
-`workload-admission: blocked-until-network-policy-security-slice`; workloads
-must not be admitted until that separate security slice is implemented.
+`workload-admission: blocked-until-network-policy-security-slice` to record
+the required, pending boundary. Those annotations are inert metadata; actual
+network and admission enforcement remains pending the separate security slice.
