@@ -6,7 +6,7 @@
 
 **Owner:** Jerry
 
-**Deployment target:** Existing Ubuntu VPS with elastic cloud workers
+**Deployment target:** OVH VPS-4 `vps-41e741fc.vps.ovh.ca` (`144.217.94.114`), Ubuntu, with elastic cloud workers
 
 ## 1. Objective
 
@@ -28,6 +28,7 @@ The finished system must:
 8. Autonomously spend no more than $20 per calendar month and never exceed $50 of agent-controlled variable monthly infrastructure/API spending; company-approved fixed base infrastructure is tracked separately.
 9. Preserve a tamper-evident audit trail and verified long-term memory.
 10. Provide immediate `/freeze`, pause, redirect, inspect, cancel, and recovery controls from the phone.
+11. Sustain the production-v1 mixed workload—three Claude/Codex jobs, two isolated browser sessions, and one verifier—without OOM eviction or loss of control-plane SLOs.
 
 ## 3. Non-goals
 
@@ -59,7 +60,7 @@ The finished system must:
 | Models | Claude/Codex subscriptions first; paid APIs as metered fallback |
 | Scaling | Existing VPS control plane plus temporary K3s cloud agents |
 | Data architecture | Adaptive polyglot layer with one canonical owner per datum |
-| Version-one footprint | K3s, PostgreSQL/pgvector, Temporal, core control services, local workers, and encrypted off-VPS backups |
+| Version-one footprint | K3s, Temporal, PostgreSQL/pgvector, Redis, MinIO, Prometheus, Grafana, Loki, Tempo, core control services, local workers, and encrypted off-VPS backups |
 
 ## 5. System Architecture
 
@@ -317,42 +318,103 @@ The broker rejects unsigned, expired, replayed, over-budget, or scope-mismatched
 
 ### 12.1 Base VPS Sizing
 
-The current 6-vCore/12-GB VPS is sufficient for shadow mode and a narrow pilot but does not provide enough worker headroom for the approved production control plane plus concurrent Chrome, Claude, and Codex jobs.
+The purchased production-v1 baseline is the in-place OVH VPS-4 upgrade for `vps-41e741fc.vps.ovh.ca`:
 
-Recommended production base:
+- 8 vCores.
+- 24 GB RAM.
+- 200 GB storage.
+- 3 Gbit/s advertised bandwidth.
+- Existing Ubuntu installation and public IP `144.217.94.114`.
 
-- **Preferred:** 12 vCores, 48 GB RAM, and at least 300 GB NVMe.
-- **Minimum:** 8 vCores, 24 GB RAM, and at least 200 GB NVMe.
-- **Scale trigger beyond preferred:** sustained worker queue delay above five minutes, memory pressure during ordinary two-agent workloads, or storage above 70%.
+The upgrade is ordered and billed but is not considered active until OVH reports provisioning complete and the guest verifies the new CPU, memory, and block-device geometry after a controlled reboot. OVH's approximately two-hour estimate is informational, not a readiness signal. Existing data and the IP are expected to remain, but neither assumption replaces a verified off-VPS backup. The system must not reboot or expand a partition or filesystem while OVH still reports the upgrade as pending.
+
+This VPS-4 is the deliberate single-node production-v1 target, not a temporary minimum awaiting a larger primary. It is large enough for the full control plane, production observability, and useful mixed local concurrency, but not for unlimited parallel browsers, large local models, heavyweight search/graph JVMs, or multiple simultaneous memory-heavy builds.
 
 The fixed VPS subscription is a company-approved base-platform expense and does not consume the agent's $20 autonomous or $50 variable-spend envelopes. Provider/API bursts remain subject to those envelopes.
 
-K3s reserves at least 40% of allocatable RAM for agent and browser workers. Always-on platform services may not expand past 60% without an explicit capacity change. Optional projection services cannot start when doing so would violate worker headroom.
+The service is paid through 2027-07-27. Its current post-commitment renewal mode is monthly; procurement may later move it to another 12-month commitment. Renewal mechanics remain outside the agent's variable-spend governor unless Jerry explicitly delegates a purchase through the protected approval flow.
 
-### 12.2 Lean Version-one Control Plane
+K3s configures explicit `system-reserved` and `kube-reserved` capacity totaling 1 vCore and 2 GiB. The resulting planning envelope is 7 vCores and 22 GiB allocatable to pods. Always-on requests consume no more than 3 vCores and 8.75 GiB; local worker requests consume no more than 3.5 vCores and 8.5 GiB; at least 0.5 vCore and 4.75 GiB remain unrequested as node headroom. CPU limits may be overcommitted because CPU throttles safely; aggregate memory limits across platform and worker quotas may not exceed the 22-GiB pod envelope.
 
-Version one deliberately runs only:
+### 12.2 Production Version-one Control Plane
 
-- K3s and private networking.
-- PostgreSQL with pgvector and separate Temporal/application schemas.
-- Temporal server and workers.
-- Discord gateway, supervisor, policy, Face ID, budget, audit, and secrets services.
-- Local Claude, Codex, browser, Workspace, verifier, and cleanup workers.
-- Persistent-volume artifact storage protected by encrypted off-VPS backups.
-- Lightweight metrics, logs, and alerting sized to strict retention limits.
+Version one runs the complete professional single-node baseline:
 
-Redis, MinIO, NATS JetStream, Neo4j, OpenSearch, and elastic cloud nodes are not version-one dependencies.
+- K3s, private networking, ingress, admission policy, and priority classes.
+- PostgreSQL/pgvector with distinct Temporal and application databases or schemas.
+- Temporal server and application workers.
+- Redis for rebuildable cache, rate limits, leases that are not workflow truth, and ephemeral coordination.
+- MinIO for canonical artifacts, screenshots, generated files, and backup staging.
+- Discord gateway, supervisor, LangGraph runtime, policy, Face ID, budget, audit, secrets, and backup services.
+- Local Claude, Codex, browser, Workspace, verifier, and cleanup worker pools.
+- Prometheus, Grafana, Loki, and Tempo with bounded local retention and off-VPS export for security-critical audit events.
+
+NATS JetStream, Neo4j, and OpenSearch are not installed in version one. They activate only after the measured thresholds in Section 13 are met and a capacity review proves they will not consume worker headroom.
 
 ### 12.3 Target Always-on Topology
 
 Namespaces:
 
 - `agent-control`: Discord gateway, supervisor API, Temporal workers, LangGraph runtime, policy engine, Face ID verifier.
-- `agent-data`: PostgreSQL/pgvector initially; activated Redis, MinIO, NATS JetStream, and projection services after their thresholds are met.
-- `agent-platform`: metrics, dashboards, logs, traces, secrets broker, cost governor, backup controller.
+- `agent-data`: PostgreSQL/pgvector, Redis, and MinIO; optional NATS and projection services remain absent until approved.
+- `agent-platform`: Prometheus, Grafana, Loki, Tempo, telemetry collectors, secrets broker, cost governor, and backup controller.
 - `agent-workers-local`: Codex, Claude, Chrome, Workspace, verifier, and cleanup pools.
 
-Every workload receives CPU, memory, storage, network, and concurrency limits. Control-plane services receive higher scheduling priority than workers.
+Control-plane and data services use `system-cluster-critical` or an equivalent dedicated high priority class; observability uses a middle priority; agent and browser jobs use lower, preemptible priority. PodDisruptionBudgets do not pretend a single node is highly available: durability comes from Temporal state, idempotent effects, restart policies, and tested restore.
+
+Initial aggregate requests and limits are implementation requirements:
+
+| Service or deployment | Replicas | CPU request | CPU limit | Memory request | Memory limit |
+|---|---:|---:|---:|---:|---:|
+| PostgreSQL/pgvector | 1 | 750m | 2 | 3 GiB | 4 GiB |
+| Temporal frontend | 1 | 100m | 400m | 256 MiB | 320 MiB |
+| Temporal history | 1 | 150m | 500m | 384 MiB | 512 MiB |
+| Temporal matching | 1 | 75m | 300m | 192 MiB | 224 MiB |
+| Temporal internal worker | 1 | 75m | 300m | 192 MiB | 224 MiB |
+| Redis | 1 | 100m | 500m | 256 MiB | 400 MiB |
+| MinIO | 1 | 200m | 1 | 512 MiB | 768 MiB |
+| Discord gateway | 1 | 100m | 300m | 128 MiB | 192 MiB |
+| Supervisor and LangGraph runtime | 1 | 300m | 1 | 768 MiB | 896 MiB |
+| Temporal application worker | 1 | 150m | 500m | 256 MiB | 288 MiB |
+| Policy engine | 1 | 50m | 200m | 96 MiB | 160 MiB |
+| Budget engine | 1 | 50m | 150m | 80 MiB | 144 MiB |
+| Audit service | 1 | 50m | 150m | 80 MiB | 144 MiB |
+| Face ID approval service | 1 | 50m | 200m | 128 MiB | 160 MiB |
+| Prometheus | 1 | 250m | 750m | 768 MiB | 896 MiB |
+| Loki | 1 | 150m | 500m | 512 MiB | 640 MiB |
+| Tempo | 1 | 100m | 300m | 384 MiB | 448 MiB |
+| Grafana | 1 | 50m | 200m | 128 MiB | 256 MiB |
+| OpenTelemetry collector | 1 | 100m | 250m | 256 MiB | 320 MiB |
+| Ingress controller | 1 | 50m | 250m | 128 MiB | 160 MiB |
+| Secrets broker | 1 | 50m | 250m | 128 MiB | 160 MiB |
+| Backup controller | 1 | 50m | 250m | 256 MiB | 280 MiB |
+| **Always-on total** |  | **3 vCores** | **10.25 vCores** | **8.75 GiB** | **11.5 GiB** |
+
+These are starting envelopes, not suggestions to let every component expand to its limit. Vertical increases require measured evidence and an updated aggregate budget. Automatic VPA memory-limit increases are disabled.
+
+The local worker namespace has a quota of 3.5 requested vCores, 8.5 GiB requested memory, and 10.5 GiB limited memory. Default per-slot envelopes are:
+
+| Worker slot | CPU request / limit | Memory request / limit | Default concurrency |
+|---|---:|---:|---:|
+| Claude or Codex CLI job | 500m / 2 | 1.5 GiB / 2 GiB | 3 total, maximum 2 per provider |
+| Isolated Chromium job | 500m / 1.5 | 1.25 GiB / 1.75 GiB | 2 |
+| Verifier or light data/integration job | 250m / 1 | 768 MiB / 1 GiB | 1 |
+| Heavy build, benchmark, or indexing job | 2 / 4 | 2.5 GiB / 4 GiB | 1, replacing two model slots and the verifier slot |
+
+The normal mixed admission target is three model jobs, two browser jobs, and one verifier. A fourth model job is opportunistic only when at least one browser slot and the verifier slot are idle, node memory is below 65%, CPU is below 60% for ten minutes, and no higher-priority queue is waiting. Slot counts are hard scheduler constraints in addition to Kubernetes requests.
+
+Storage budgets are based on at least 180 GiB usable after formatting and filesystem expansion:
+
+| Use | Budget |
+|---|---:|
+| Ubuntu, K3s, container images, and package reserve | 30 GiB |
+| PostgreSQL/pgvector and Temporal history | 40 GiB |
+| MinIO artifacts and backup staging | 55 GiB |
+| Prometheus, Loki, and Tempo | 20 GiB |
+| Worker worktrees, browser profiles, and build caches | 20 GiB |
+| Unallocated emergency headroom | 15 GiB |
+
+Prometheus retains 15 days within 8 GiB, Loki retains 7 days within 8 GiB, and Tempo retains 3 days within 4 GiB. Grafana is stateless apart from provisioned configuration. Audit truth is stored and exported separately; observability retention may never delete the authoritative audit ledger.
 
 ### 12.4 Temporary Cloud Workers
 
@@ -372,6 +434,33 @@ Burst sequence:
 
 Temporary nodes may provide CPU-heavy builds, memory-heavy indexing, parallel browser sessions, and batch research. Canonical databases remain on the control VPS.
 
+### 12.5 Admission, Degradation, and Overload
+
+Admission is based on requested resources, live pressure, queue priority, provider quota, and job deadline. It never starts a pod merely because Kubernetes CPU limits can be overcommitted.
+
+| State | Trigger sustained for five minutes | Required behavior |
+|---|---|---|
+| Normal | Memory below 70%, disk below 70%, CPU below 80%, no node pressure | Admit within namespace quotas and configured slot counts |
+| Constrained | Memory 70–80%, CPU 80–90%, disk 70–80%, or ready-queue p95 above two minutes | Remove opportunistic slots; pause embeddings, cache warming, image pulls, and other background work; reduce graph fan-out |
+| Degraded | Memory 80–90%, disk 80–90%, Kubernetes `MemoryPressure`/`DiskPressure`, or ready-queue p95 above five minutes | Admit only interactive and recovery work; cap model jobs at two and browsers at one; stop heavy builds; alert Jerry; use a budget-approved cloud worker when Phase 5 is active |
+| Survival | Memory above 90%, disk above 90%, repeated OOM/eviction, or control-plane SLO breach | Pause noncritical workflows at safe Temporal checkpoints; drain lower-priority workers; keep Discord, approval, policy, audit, Temporal, PostgreSQL, and recovery paths alive; reject new mutations except explicit recovery |
+
+Overload never relaxes authorization, taint, idempotency, audit, or spend rules. Jobs queue durably rather than bypassing safeguards. Recovery to a less restrictive state requires ten stable minutes below that state's thresholds; flapping triggers a 30-minute cooldown.
+
+### 12.6 Expansion Thresholds
+
+Capacity actions are evidence-driven:
+
+1. **Tune or clean up:** disk reaches 70%, PostgreSQL or observability exceeds its budget, or constrained mode occurs three times in seven days.
+2. **Use temporary workers:** only after Phase 5 is active, when either its activation pattern recurs or an eligible deadline-bound job would otherwise wait more than five minutes and cost remains inside the signed budget.
+3. **Add a permanent worker node:** ready-queue p95 exceeds five minutes on three days in a rolling week, or the normal mixed workload drives memory above 80% or CPU above 85% for fifteen minutes after tuning.
+4. **Move data services or resize the primary:** storage remains above 75% after retention and cleanup, PostgreSQL disk latency violates its SLO, or always-on memory requests would exceed 10 GiB.
+5. **Activate NATS, Neo4j, or OpenSearch:** its Section 13 functional threshold is met and either a second node exists or a signed capacity change preserves at least 4 GiB unrequested headroom on the primary.
+
+The first scale-out step is a private K3s worker node for browsers, builds, and agent jobs. PostgreSQL, Temporal persistence, policy, and audit remain on the primary until a separately designed high-availability data tier exists.
+
+Every permanent capacity change follows the same procedure: preserve the triggering seven-day metrics, choose the smallest change that removes the measured bottleneck, take and verify any affected data backup, update requests/limits/quotas and the capacity ledger in the same pull request, run the mixed-load and overload suites, and retain a tested rollback. A model may recommend the change; signed policy and the existing spending/approval boundaries decide whether it happens.
+
 ## 13. Adaptive Polyglot Data Layer
 
 | System | Canonical responsibility |
@@ -386,17 +475,15 @@ Temporary nodes may provide CPU-heavy builds, memory-heavy indexing, parallel br
 | OpenSearch | Rebuildable full-text and analytics projection |
 | Loki/Tempo/Prometheus | Operational logs, traces, and metrics under retention limits |
 
-Version one uses PostgreSQL/pgvector, PVC-backed artifact files, and encrypted off-VPS object-storage backups. Additional systems activate only after profiling demonstrates a threshold:
+Version one uses PostgreSQL/pgvector, Redis, MinIO, Prometheus, Grafana, Loki, Tempo, and encrypted off-VPS object-storage backups. Redis is rebuildable and cannot own workflow truth. MinIO owns binary artifacts from the first production release. Additional systems activate only after profiling demonstrates a threshold:
 
 | Optional system | Activation threshold |
 |---|---|
-| Redis | Repeated cacheable reads consume more than 20% of PostgreSQL load or miss the relevant p95 latency target |
-| MinIO | Artifact corpus exceeds 50 GB or multiple nodes require concurrent object access |
 | NATS JetStream | A non-workflow event requires three or more independent consumers or sustained fan-out exceeds 50 events/second |
 | Neo4j | Approved multi-hop relationship queries cannot meet p95 750 ms using indexed PostgreSQL recursive queries |
 | OpenSearch | Corpus exceeds 250,000 searchable records or PostgreSQL full-text search cannot meet p95 one second at expected concurrency |
 
-Neo4j and OpenSearch are entirely absent from version one rather than idle JVM workloads. When activated, all projection data remains reproducible from canonical stores.
+Temporal task queues plus a PostgreSQL outbox cover version-one workflow and integration delivery; NATS is not smuggled in as a second workflow engine. NATS, Neo4j, and OpenSearch are entirely absent from version one rather than idle heavyweight services. When activated, all event copies and projection data remain reproducible from canonical stores.
 
 PostgreSQL uses separate application and Temporal schemas, continuous WAL archiving, encrypted snapshots, and off-VPS object storage. The target recovery point is 15 minutes.
 
@@ -516,6 +603,8 @@ Rotating the verification key requires the explicit recovery ceremony. Asking an
 
 Dashboards report queue depth, critical path, worker saturation, model latency, token use, cache hit rate, cost per completed outcome, retry rates, revision rates, policy denials, approval latency, and resource cleanup.
 
+The production-v1 observability stack is Prometheus, Grafana, Loki, and Tempo, instrumented with OpenTelemetry. Alerts cover node and namespace memory, CPU throttling, filesystem and PVC capacity, PostgreSQL health and WAL lag, Temporal task-queue age, worker admission denials, OOM/evictions, provider quota, backup freshness, audit export failure, and authority-lease anomalies. Cardinality budgets and the storage caps in Section 12.3 are enforced in configuration and tested under load.
+
 ## 18. Testing Strategy
 
 ### 18.1 Automated Tests
@@ -525,6 +614,8 @@ Dashboards report queue depth, critical path, worker saturation, model latency, 
 - Contract tests for every MCP, CLI, provider, and root-broker adapter.
 - Golden tests for intent classification and policy decisions.
 - Load tests for scheduler throughput, graph fan-out, browser concurrency, and cache effectiveness.
+- A 60-minute mixed-capacity test with three Claude/Codex workers, two Chromium workers, and one verifier while command and approval traffic is injected.
+- Overload drills that force every state in Section 12.5 and prove lower-priority work yields before control, policy, audit, Temporal, or PostgreSQL.
 
 ### 18.2 Security and Reliability Tests
 
@@ -644,11 +735,31 @@ The Phase 1 gate requires zero critical misses across the one hundred-job corpus
 
 ## 20. Rollout
 
-### Phase 0 — Foundation
+### 20.1 VPS-4 Activation Runbook
 
-Install and verify K3s, private networking, storage, secrets, policy engine, observability, backups, root broker, and emergency freeze.
+1. Wait until OVH explicitly reports the VPS-4 upgrade provisioned. Do not reboot while the order is pending.
+2. Capture current service health, `lsblk`, `findmnt`, `df -hT`, partition tables, and any LVM layout.
+3. Complete an encrypted off-VPS backup, verify checksums and backup manifests, and perform a test restore of at least PostgreSQL metadata plus representative artifacts.
+4. Pause mutation workflows at safe Temporal checkpoints and stop local workers.
+5. Reboot through a controlled maintenance window.
+6. Verify the guest sees 8 vCores, approximately 24 GB RAM, the expected public IP, and the new block-device size before changing storage.
+7. Identify the actual partitioning, LVM, and filesystem type. Expand only the final intended layer—partition, physical volume, logical volume, then filesystem as applicable—using the tool appropriate to that observed layout. Never guess, shrink, reformat, or run a filesystem command for a different filesystem type.
+8. Re-run block-device and filesystem checks, verify at least 180 GiB usable, start services in dependency order, resume workflows, and reconcile every interrupted external effect before retry.
+9. Record the before/after evidence, OVH completion state, backup identifier, commands, output, and rollback decisions in the immutable operations log.
 
-**Gate:** Restore production state onto a clean node within the RTO and RPO.
+If the guest does not see the purchased capacity or storage geometry is ambiguous, stop and escalate to OVH or Jerry. A smaller filesystem is inconvenient; a confident wrong resize command is archaeology.
+
+### Phase 0A — VPS-4 Activation
+
+Apply the runbook above before installing the production control plane.
+
+**Gate:** OVH provisioning is confirmed; the pre-change backup and sample restore pass; the guest verifies 8 vCores, 24 GB RAM, at least 180 GiB usable storage, the expected IP, and no data loss.
+
+### Phase 0B — Foundation
+
+Install and verify K3s, private networking, PostgreSQL/pgvector, Temporal, Redis, MinIO, Prometheus, Grafana, Loki, Tempo, secrets, policy engine, backups, root broker, and emergency freeze with the Section 12 budgets.
+
+**Gate:** Restore production state onto a clean node within the RTO and RPO; pass the 60-minute normal mixed-load test with memory below 80% after warm-up, disk below 70%, no sustained CPU above 90%, and no OOM, eviction, missed audit event, or control-plane SLO breach; and pass constrained, degraded, and survival-mode drills.
 
 ### Phase 1 — Shadow Mode
 
@@ -689,7 +800,7 @@ No phase unlocks because the system merely appears stable. Each gate emits evide
 Implementation must produce:
 
 1. Version-controlled infrastructure repository.
-2. K3s manifests or Helm charts for the lean version-one control plane.
+2. K3s manifests or Helm charts for the full resource-bounded production version-one control plane.
 3. Discord bot and command gateway.
 4. Temporal workflow service and LangGraph subgraph library.
 5. Policy, budget, approval, and audit services.
@@ -700,7 +811,7 @@ Implementation must produce:
 10. Mobile-friendly operational dashboard.
 11. Backup and disaster-recovery automation.
 12. Full automated test, adversarial test, and rollout-gate suites.
-13. Operator runbook covering freeze, restore, credential rotation, provider failure, and manual recovery.
+13. Operator runbook covering VPS-4 activation and filesystem expansion, freeze, overload, capacity expansion, restore, credential rotation, provider failure, and manual recovery.
 
 ## 22. Design Invariants
 
