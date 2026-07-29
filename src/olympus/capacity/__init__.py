@@ -1,0 +1,1 @@
+"""Machine-enforced resource envelopes."""

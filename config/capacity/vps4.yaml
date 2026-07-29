@@ -1,0 +1,40 @@
+schema_version: 1
+node:
+  cpu_millicores: 8000
+  memory_mib: 24576
+reserved:
+  cpu_millicores: 1000
+  memory_mib: 2048
+allocatable:
+  cpu_millicores: 7000
+  memory_mib: 22528
+always_on:
+  - {name: postgres, cpu_request_millicores: 750, cpu_limit_millicores: 2000, memory_request_mib: 3072, memory_limit_mib: 4096}
+  - {name: temporal-frontend, cpu_request_millicores: 100, cpu_limit_millicores: 400, memory_request_mib: 256, memory_limit_mib: 320}
+  - {name: temporal-history, cpu_request_millicores: 150, cpu_limit_millicores: 500, memory_request_mib: 384, memory_limit_mib: 512}
+  - {name: temporal-matching, cpu_request_millicores: 75, cpu_limit_millicores: 300, memory_request_mib: 192, memory_limit_mib: 224}
+  - {name: temporal-internal-worker, cpu_request_millicores: 75, cpu_limit_millicores: 300, memory_request_mib: 192, memory_limit_mib: 224}
+  - {name: redis, cpu_request_millicores: 100, cpu_limit_millicores: 500, memory_request_mib: 256, memory_limit_mib: 400}
+  - {name: minio, cpu_request_millicores: 200, cpu_limit_millicores: 1000, memory_request_mib: 512, memory_limit_mib: 768}
+  - {name: discord-gateway, cpu_request_millicores: 100, cpu_limit_millicores: 300, memory_request_mib: 128, memory_limit_mib: 192}
+  - {name: supervisor, cpu_request_millicores: 300, cpu_limit_millicores: 1000, memory_request_mib: 768, memory_limit_mib: 896}
+  - {name: temporal-app-worker, cpu_request_millicores: 150, cpu_limit_millicores: 500, memory_request_mib: 256, memory_limit_mib: 288}
+  - {name: policy, cpu_request_millicores: 50, cpu_limit_millicores: 200, memory_request_mib: 96, memory_limit_mib: 160}
+  - {name: budget, cpu_request_millicores: 50, cpu_limit_millicores: 150, memory_request_mib: 80, memory_limit_mib: 144}
+  - {name: audit, cpu_request_millicores: 50, cpu_limit_millicores: 150, memory_request_mib: 80, memory_limit_mib: 144}
+  - {name: approval, cpu_request_millicores: 50, cpu_limit_millicores: 200, memory_request_mib: 128, memory_limit_mib: 160}
+  - {name: prometheus, cpu_request_millicores: 250, cpu_limit_millicores: 750, memory_request_mib: 768, memory_limit_mib: 896}
+  - {name: loki, cpu_request_millicores: 150, cpu_limit_millicores: 500, memory_request_mib: 512, memory_limit_mib: 640}
+  - {name: tempo, cpu_request_millicores: 100, cpu_limit_millicores: 300, memory_request_mib: 384, memory_limit_mib: 448}
+  - {name: grafana, cpu_request_millicores: 50, cpu_limit_millicores: 200, memory_request_mib: 128, memory_limit_mib: 256}
+  - {name: otel-collector, cpu_request_millicores: 100, cpu_limit_millicores: 250, memory_request_mib: 256, memory_limit_mib: 320}
+  - {name: ingress, cpu_request_millicores: 50, cpu_limit_millicores: 250, memory_request_mib: 128, memory_limit_mib: 160}
+  - {name: secrets-broker, cpu_request_millicores: 50, cpu_limit_millicores: 250, memory_request_mib: 128, memory_limit_mib: 160}
+  - {name: backup-controller, cpu_request_millicores: 50, cpu_limit_millicores: 250, memory_request_mib: 256, memory_limit_mib: 280}
+worker_quota:
+  cpu_request_millicores: 3500
+  memory_request_mib: 8704
+  memory_limit_mib: 10752
+required_headroom:
+  cpu_millicores: 500
+  memory_mib: 4864
