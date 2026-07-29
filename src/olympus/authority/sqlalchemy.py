@@ -222,7 +222,7 @@ class SqlAlchemyAuthorityRepository:
                     "authority_epoch": row.authority_epoch,
                     "commander_id": row.commander_id,
                     "guild_id": row.guild_id,
-                    "lease_id": row.lease_id,
+                    "lease_fingerprint": hashlib.sha256(row.lease_id.encode()).hexdigest(),
                 },
                 now,
             )
@@ -266,7 +266,7 @@ class SqlAlchemyAuthorityRepository:
                     "authority_epoch": row.authority_epoch,
                     "commander_id": row.commander_id,
                     "guild_id": row.guild_id,
-                    "lease_id": row.lease_id,
+                    "lease_fingerprint": hashlib.sha256(row.lease_id.encode()).hexdigest(),
                 },
                 request.issued_at,
             )

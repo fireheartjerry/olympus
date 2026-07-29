@@ -534,7 +534,7 @@ class InMemoryAuthorityRepository:
                 "authority_epoch": lease.authority_epoch,
                 "commander_id": lease.commander_id,
                 "guild_id": lease.guild_id,
-                "lease_id": lease.lease_id,
+                "lease_fingerprint": _secret_fingerprint(lease.lease_id),
             },
         )
         return lease
@@ -571,6 +571,10 @@ def _audit_hash(sequence: int, event_type: str, body: str, previous_hash: bytes)
         separators=(",", ":"),
     ).encode()
     return hashlib.sha256(canonical).digest()
+
+
+def _secret_fingerprint(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def _require_digest(value: bytes, field_name: str) -> None:

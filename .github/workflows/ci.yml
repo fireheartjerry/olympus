@@ -16,6 +16,23 @@ jobs:
   python:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      OLYMPUS_TEST_DATABASE_DSN: postgresql+asyncpg://olympus_test:olympus_test_password@127.0.0.1:5432/olympus_test
+    services:
+      postgres:
+        # postgres:17.6-bookworm, linux/amd64 manifest
+        image: postgres@sha256:45cd22f8d32e189d245403954882f88e7a8714301fda80dab6da90f1265b25a3
+        env:
+          POSTGRES_DB: olympus_test
+          POSTGRES_USER: olympus_test
+          POSTGRES_PASSWORD: olympus_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready --username=olympus_test --dbname=olympus_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       # v4.2.2
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -50,11 +67,16 @@ jobs:
           uv sync --locked --no-dev
           "$UV_PROJECT_ENVIRONMENT/bin/python" -c "import olympus; assert olympus.__version__ == '0.1.0'"
       - name: Check formatting
-        run: uv run ruff format --check src tests
+        run: uv run ruff format --check src tests migrations
       - name: Lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests migrations
       - name: Type-check in strict mode
         run: uv run mypy
+      - name: Verify PostgreSQL migrations round trip
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade base
+          uv run alembic upgrade head
       - name: Test with warnings as errors
         run: uv run pytest -W error
 
