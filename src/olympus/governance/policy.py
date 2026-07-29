@@ -1,5 +1,5 @@
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
@@ -95,11 +95,13 @@ class PolicyKernel:
         *,
         verification_keys: dict[str, bytes],
         activation_principal: str,
+        activation_approval_verifier: Callable[[SignedPolicyRelease], bool] = lambda _: False,
     ) -> None:
         if not verification_keys or not activation_principal.strip():
             raise ValueError("policy trust root and activation principal are required")
         self._verification_keys = dict(verification_keys)
         self._activation_principal = activation_principal
+        self._activation_approval_verifier = activation_approval_verifier
         self._active: PolicyBundle | None = None
 
     @property
@@ -115,6 +117,8 @@ class PolicyKernel:
     ) -> PolicyBundle:
         if principal != self._activation_principal:
             raise PolicyActivationDenied("principal cannot activate policy releases")
+        if not self._activation_approval_verifier(release):
+            raise PolicyActivationDenied("Face ID policy activation approval is required")
         _require_aware(now, "now")
         verification_key = self._verification_keys.get(release.signer_id)
         if verification_key is None:

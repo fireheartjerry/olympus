@@ -57,6 +57,7 @@ def test_governed_mvp_path_reaches_fake_effects_with_complete_boundaries() -> No
     active_policy = PolicyKernel(
         verification_keys={"offline-root": bytes(policy_key.verify_key)},
         activation_principal="policy-release-service",
+        activation_approval_verifier=lambda _: True,
     ).verify_and_activate(
         SignedPolicyRelease(
             "offline-root",

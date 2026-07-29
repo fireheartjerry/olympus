@@ -47,6 +47,7 @@ def kernel(key: SigningKey) -> PolicyKernel:
     return PolicyKernel(
         verification_keys={"offline-policy-root": bytes(key.verify_key)},
         activation_principal="policy-release-service",
+        activation_approval_verifier=lambda _: True,
     )
 
 
@@ -130,5 +131,20 @@ def test_agent_service_principal_cannot_activate_a_release() -> None:
         kernel(key).verify_and_activate(
             release(key),
             principal="olympus-agent-worker",
+            now=NOW,
+        )
+
+
+def test_policy_cannot_activate_without_face_id_release_approval() -> None:
+    key = SigningKey.generate()
+    policy = PolicyKernel(
+        verification_keys={"offline-policy-root": bytes(key.verify_key)},
+        activation_principal="policy-release-service",
+    )
+
+    with pytest.raises(PolicyActivationDenied, match="Face ID"):
+        policy.verify_and_activate(
+            release(key),
+            principal="policy-release-service",
             now=NOW,
         )
