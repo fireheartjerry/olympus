@@ -1,2 +1,16 @@
 .superpowers/
 .worktrees/
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
+.env
+.env.*
+!.env.example
+outputs/
+work/
