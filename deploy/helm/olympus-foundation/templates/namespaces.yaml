@@ -1,0 +1,69 @@
+{{- if ne (len .Values) 2 }}
+{{- fail "only namespaces and workerQuota values are allowed" }}
+{{- end }}
+{{- if ne (len .Values.namespaces) 4 }}
+{{- fail "all four named namespaces are required and no additional namespaces are allowed" }}
+{{- end }}
+{{- if ne (len .Values.workerQuota) 4 }}
+{{- fail "all four worker quota values are required and no additional quota values are allowed" }}
+{{- end }}
+{{- if ne .Values.namespaces.control "agent-control" }}
+{{- fail "namespaces.control must remain agent-control" }}
+{{- end }}
+{{- if ne .Values.namespaces.data "agent-data" }}
+{{- fail "namespaces.data must remain agent-data" }}
+{{- end }}
+{{- if ne .Values.namespaces.platform "agent-platform" }}
+{{- fail "namespaces.platform must remain agent-platform" }}
+{{- end }}
+{{- if ne .Values.namespaces.workersLocal "agent-workers-local" }}
+{{- fail "namespaces.workersLocal must remain agent-workers-local" }}
+{{- end }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespaces.control }}
+  annotations:
+    helm.sh/resource-policy: keep
+    olympus.dev/network-policy-status: not-installed
+    olympus.dev/workload-admission: blocked-until-network-policy-security-slice
+  labels:
+    app.kubernetes.io/part-of: olympus
+    olympus.dev/default-deny-network: "required"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespaces.data }}
+  annotations:
+    helm.sh/resource-policy: keep
+    olympus.dev/network-policy-status: not-installed
+    olympus.dev/workload-admission: blocked-until-network-policy-security-slice
+  labels:
+    app.kubernetes.io/part-of: olympus
+    olympus.dev/default-deny-network: "required"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespaces.platform }}
+  annotations:
+    helm.sh/resource-policy: keep
+    olympus.dev/network-policy-status: not-installed
+    olympus.dev/workload-admission: blocked-until-network-policy-security-slice
+  labels:
+    app.kubernetes.io/part-of: olympus
+    olympus.dev/default-deny-network: "required"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespaces.workersLocal }}
+  annotations:
+    helm.sh/resource-policy: keep
+    olympus.dev/network-policy-status: not-installed
+    olympus.dev/workload-admission: blocked-until-network-policy-security-slice
+  labels:
+    app.kubernetes.io/part-of: olympus
+    olympus.dev/default-deny-network: "required"
