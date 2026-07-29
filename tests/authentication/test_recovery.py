@@ -48,3 +48,38 @@ async def test_counter_regression_freezes_authority() -> None:
         )
 
     assert await repository.is_frozen()
+
+
+async def test_fresh_face_id_recovery_clears_exact_freeze_epoch_and_issues_new_lease() -> None:
+    repository = InMemoryAuthorityRepository()
+    service = make_service(repository)
+    registration = await service.begin_registration(
+        purpose=service.bootstrap_purpose,
+        bootstrap_enabled=True,
+        now=NOW,
+    )
+    credential = await service.finish_registration(
+        challenge_id=registration.challenge_id,
+        response={"challenge": registration.options["challenge"]},
+        now=NOW,
+    )
+    await repository.freeze("freeze-1", "operator-request", NOW)
+
+    recovery = await service.begin_recovery(
+        request_id="recovery-1",
+        credential_id=credential.credential_id,
+        now=NOW,
+    )
+    result = await service.finish_recovery(
+        challenge_id=recovery.ceremony.challenge_id,
+        credential_id=credential.credential_id,
+        response={"challenge": recovery.ceremony.options["challenge"]},
+        now=NOW,
+    )
+
+    assert recovery.payload.action == "unfreeze"
+    assert recovery.payload.freeze_epoch == 2
+    assert not await repository.is_frozen()
+    assert result.lease.authority_epoch == 3
+    assert result.proof.freeze_epoch == 2
+    assert await repository.active_lease() == result.lease

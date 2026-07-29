@@ -90,6 +90,7 @@ def upgrade() -> None:
         sa.Column("purpose", sa.String(length=32), nullable=False),
         sa.Column("commander_id", sa.String(length=20), nullable=False),
         sa.Column("payload_digest", sa.LargeBinary(length=32), nullable=False),
+        sa.Column("payload_json", sa.Text(), nullable=True),
         sa.Column("issued_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("consumed_at", sa.DateTime(timezone=True), nullable=True),

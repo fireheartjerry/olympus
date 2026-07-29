@@ -23,6 +23,7 @@ def challenge() -> Challenge:
         purpose="lease",
         commander_id="628053765181800448",
         payload_digest=b"b" * 32,
+        payload_json=None,
         issued_at=NOW,
         expires_at=NOW + timedelta(minutes=5),
     )

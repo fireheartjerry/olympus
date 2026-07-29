@@ -51,6 +51,7 @@ class Challenge:
     purpose: str
     commander_id: str
     payload_digest: bytes
+    payload_json: str | None
     issued_at: datetime
     expires_at: datetime
     consumed_at: datetime | None = None
@@ -136,6 +137,20 @@ class FreezeReceipt:
 
 
 @dataclass(frozen=True)
+class FreezeState:
+    frozen: bool
+    freeze_epoch: int
+    authority_epoch: int
+
+
+@dataclass(frozen=True)
+class RecoveryReceipt:
+    lease: AuthorityLease
+    freeze_epoch: int
+    repository_proof: bytes
+
+
+@dataclass(frozen=True)
 class AuditEvent:
     sequence: int
     event_type: str
@@ -181,6 +196,21 @@ class AuthorityRepository(Protocol):
     ) -> AuthorityLease: ...
 
     async def active_lease(self) -> AuthorityLease | None: ...
+
+    async def freeze_state(self) -> FreezeState: ...
+
+    async def complete_recovery(
+        self,
+        *,
+        challenge_id: str,
+        challenge_digest: bytes,
+        expected_freeze_epoch: int,
+        credential_id: bytes,
+        new_sign_count: int,
+        lease_request: LeaseRequest,
+        recovery_id: str,
+        now: datetime,
+    ) -> RecoveryReceipt: ...
 
     async def issue_lease(self, request: LeaseRequest) -> AuthorityLease: ...
 
@@ -296,6 +326,72 @@ class InMemoryAuthorityRepository:
     async def issue_lease(self, request: LeaseRequest) -> AuthorityLease:
         async with self._lock:
             return self._issue_lease_locked(request)
+
+    async def freeze_state(self) -> FreezeState:
+        async with self._lock:
+            return FreezeState(
+                frozen=self._frozen,
+                freeze_epoch=self._freeze_epoch,
+                authority_epoch=self._authority_epoch,
+            )
+
+    async def complete_recovery(
+        self,
+        *,
+        challenge_id: str,
+        challenge_digest: bytes,
+        expected_freeze_epoch: int,
+        credential_id: bytes,
+        new_sign_count: int,
+        lease_request: LeaseRequest,
+        recovery_id: str,
+        now: datetime,
+    ) -> RecoveryReceipt:
+        async with self._lock:
+            challenge = self._consume_challenge_locked(
+                challenge_id,
+                challenge_digest,
+                now,
+            )
+            if challenge.purpose != "recovery":
+                raise ChallengeInvalid("challenge purpose does not permit recovery")
+            if not self._frozen or self._freeze_epoch != expected_freeze_epoch:
+                raise AdmissionDenied("freeze epoch changed before recovery")
+            credential = self._credentials.get(credential_id)
+            if credential is None or credential.revoked_at is not None:
+                raise AuthorityRepositoryError("credential is unavailable")
+            if new_sign_count < credential.sign_count:
+                raise AuthorityRepositoryError("credential counter regressed")
+            self._credentials[credential_id] = replace(
+                credential,
+                sign_count=new_sign_count,
+            )
+            self._frozen = False
+            lease = self._issue_lease_locked(lease_request)
+            proof = hashlib.sha256(
+                json.dumps(
+                    {
+                        "authority_epoch": lease.authority_epoch,
+                        "freeze_epoch": expected_freeze_epoch,
+                        "recovery_id": recovery_id,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).digest()
+            self._append_audit(
+                "authority-recovered",
+                {
+                    "authority_epoch": lease.authority_epoch,
+                    "freeze_epoch": expected_freeze_epoch,
+                    "recovery_id": recovery_id,
+                },
+            )
+            return RecoveryReceipt(
+                lease=lease,
+                freeze_epoch=expected_freeze_epoch,
+                repository_proof=proof,
+            )
 
     async def admit(self, request: AdmissionRequest) -> AdmissionReceipt:
         async with self._lock:

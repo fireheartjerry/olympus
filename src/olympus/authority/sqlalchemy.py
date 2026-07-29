@@ -1,3 +1,4 @@
+import hashlib
 import hmac
 import json
 from datetime import datetime
@@ -19,8 +20,10 @@ from olympus.authority.repository import (
     ChallengeInvalid,
     Credential,
     FreezeReceipt,
+    FreezeState,
     InMemoryAuthorityRepository,
     LeaseRequest,
+    RecoveryReceipt,
     _audit_hash,
     _require_aware,
 )
@@ -66,6 +69,7 @@ class SqlAlchemyAuthorityRepository:
                     purpose=challenge.purpose,
                     commander_id=challenge.commander_id,
                     payload_digest=challenge.payload_digest,
+                    payload_json=challenge.payload_json,
                     issued_at=challenge.issued_at,
                     expires_at=challenge.expires_at,
                     consumed_at=challenge.consumed_at,
@@ -388,6 +392,106 @@ class SqlAlchemyAuthorityRepository:
                 raise AuthorityRepositoryError("multiple active leases violate authority state")
             return None if not rows else _lease_from_row(rows[0])
 
+    async def freeze_state(self) -> FreezeState:
+        async with self._sessions() as session:
+            authority = await session.get(AuthorityStateRow, 1)
+            freeze = await session.get(GlobalFreezeRow, 1)
+            if authority is None or freeze is None:
+                raise AuthorityRepositoryError("canonical authority state is not initialized")
+            return FreezeState(
+                frozen=freeze.frozen,
+                freeze_epoch=freeze.freeze_epoch,
+                authority_epoch=authority.authority_epoch,
+            )
+
+    async def complete_recovery(
+        self,
+        *,
+        challenge_id: str,
+        challenge_digest: bytes,
+        expected_freeze_epoch: int,
+        credential_id: bytes,
+        new_sign_count: int,
+        lease_request: LeaseRequest,
+        recovery_id: str,
+        now: datetime,
+    ) -> RecoveryReceipt:
+        async with self._sessions.begin() as session:
+            authority, freeze = await self._locked_state(session)
+            challenge = await self._consume_challenge_row(
+                session,
+                challenge_id,
+                challenge_digest,
+                now,
+            )
+            if challenge.purpose != "recovery":
+                raise ChallengeInvalid("challenge purpose does not permit recovery")
+            if not freeze.frozen or freeze.freeze_epoch != expected_freeze_epoch:
+                raise AdmissionDenied("freeze epoch changed before recovery")
+            credential = await session.get(
+                WebAuthnCredentialRow,
+                credential_id,
+                with_for_update=True,
+            )
+            if credential is None or credential.revoked_at is not None:
+                raise AuthorityRepositoryError("credential is unavailable")
+            if new_sign_count < credential.sign_count:
+                raise AuthorityRepositoryError("credential counter regressed")
+            credential.sign_count = new_sign_count
+            active_rows = (
+                await session.scalars(
+                    select(AuthorityLeaseRow)
+                    .where(AuthorityLeaseRow.revoked_at.is_(None))
+                    .with_for_update()
+                )
+            ).all()
+            for active in active_rows:
+                active.revoked_at = now
+                active.revocation_reason = "recovery-replaced"
+            freeze.frozen = False
+            freeze.request_id = recovery_id
+            freeze.reason_code = "face-id-recovery"
+            freeze.updated_at = now
+            authority.authority_epoch += 1
+            authority.updated_at = now
+            lease = AuthorityLeaseRow(
+                lease_id=lease_request.lease_id,
+                authority_epoch=authority.authority_epoch,
+                commander_id=lease_request.commander_id,
+                guild_id=lease_request.guild_id,
+                channel_scope_digest=lease_request.channel_scope_digest,
+                credential_id=credential_id,
+                issued_at=lease_request.issued_at,
+                expires_at=lease_request.expires_at,
+            )
+            session.add(lease)
+            proof = hashlib.sha256(
+                json.dumps(
+                    {
+                        "authority_epoch": lease.authority_epoch,
+                        "freeze_epoch": expected_freeze_epoch,
+                        "recovery_id": recovery_id,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).digest()
+            await self._append_audit(
+                session,
+                "authority-recovered",
+                {
+                    "authority_epoch": lease.authority_epoch,
+                    "freeze_epoch": expected_freeze_epoch,
+                    "recovery_id": recovery_id,
+                },
+                now,
+            )
+            return RecoveryReceipt(
+                lease=_lease_from_row(lease),
+                freeze_epoch=expected_freeze_epoch,
+                repository_proof=proof,
+            )
+
     async def audit_events(self) -> tuple[AuditEvent, ...]:
         async with self._sessions() as session:
             rows = (
@@ -477,6 +581,7 @@ def _challenge_from_row(row: WebAuthnChallengeRow) -> Challenge:
         purpose=row.purpose,
         commander_id=row.commander_id,
         payload_digest=row.payload_digest,
+        payload_json=row.payload_json,
         issued_at=row.issued_at,
         expires_at=row.expires_at,
         consumed_at=row.consumed_at,

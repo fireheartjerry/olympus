@@ -44,6 +44,7 @@ class WebAuthnChallengeRow(Base):
     purpose: Mapped[str] = mapped_column(String(32), nullable=False)
     commander_id: Mapped[str] = mapped_column(String(20), nullable=False)
     payload_digest: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    payload_json: Mapped[str | None] = mapped_column(Text)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
