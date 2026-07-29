@@ -1,21 +1,18 @@
 # Phase 0 Foundation Walking Skeleton Acceptance
 
-## Decision status: pending remote CI evidence
+## Decision status: accepted
 
-The foundation walking skeleton has local evidence, but it is **not accepted**
-until GitHub Actions completes successfully for a pull request from the
-implementation branch or for the post-merge `main` branch. The workflow does
-not run for a standalone implementation-branch push. This record deliberately
-does not infer remote evidence from a local run. The workflow's `python` and
-`helm` jobs are the required remote gate.
+The foundation walking skeleton is accepted. GitHub Actions completed
+successfully for post-merge `main` at the recorded commit, and both required
+jobs passed.
 
 | Required evidence | Record |
 | --- | --- |
-| Implementation commit SHA | Pending: record the commit that contains this acceptance record. |
-| GitHub Actions run URL | Pending: add a successful pull-request run from the implementation branch or post-merge `main` run URL. |
-| `python` job conclusion | Pending. |
-| `helm` job conclusion | Pending. |
-| Acceptance decision | Pending until every row above is evidenced. |
+| Implementation commit SHA | `27a055cea59fe8a39cec8ef305d60da06ef71a28` |
+| GitHub Actions run URL | https://github.com/fireheartjerry/olympus/actions/runs/30434521789 |
+| `python` job conclusion | Success. |
+| `helm` job conclusion | Success. |
+| Acceptance decision | Accepted on 2026-07-29. |
 
 ## Current local evidence
 
@@ -66,20 +63,18 @@ infrastructure, or an external effect API.
   namespace annotations record `not-installed` and the required pending
   blocked-admission status, but are inert metadata. Actual admission and
   network enforcement remain pending the dedicated security slice.
-- [ ] Link a successful pull-request run from this implementation branch or a
+- [x] Link a successful pull-request run from this implementation branch or a
   post-merge `main` run, with both `python` and `helm` jobs green. A standalone
   implementation-branch push is not evidence because the workflow does not
   trigger for it.
-- [ ] Record the SHA and run URL in the status table, then mark this gate
+- [x] Record the SHA and run URL in the status table, then mark this gate
   accepted in a follow-up evidence-only update.
 
 ## Scope and authorization boundary
 
-Until this gate is marked accepted, it authorizes neither planning nor
-implementation of the next identity and authority-lease slice. Only after it
-is marked accepted may that next slice be planned; acceptance does not
-authorize its implementation or any external change. It also does not
-authorize a live VPS deployment, a Kubernetes apply, Discord connectivity,
-production credentials, a root broker, WebAuthn, policy-bundle activation, or
-any external side effect. Temporal owns the walking skeleton's workflow state;
-LangGraph and privileged adapters are outside this slice.
+This accepted gate authorizes planning—but not implementation—of the next
+identity and authority-lease slice. It does not authorize a live VPS
+deployment, a Kubernetes apply, Discord connectivity, production credentials,
+a root broker, WebAuthn, policy-bundle activation, or any external side effect.
+Temporal owns the walking skeleton's workflow state; LangGraph and privileged
+adapters are outside this slice.
