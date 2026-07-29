@@ -4,14 +4,25 @@ param(
     [string]$HelmPath,
 
     [Parameter(Mandatory = $true)]
-    [string]$KubeconformPath
+    [string]$KubeconformPath,
+
+    [Parameter()]
+    [string]$KubernetesVersion = "1.36.1",
+
+    [Parameter()]
+    [string]$SchemaLocation = "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/05eeed51991935dd1f47cd3b3682de4e8af233f3/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}.json"
 )
 
 $ErrorActionPreference = "Stop"
 
 $chartPath = Split-Path -Parent $PSScriptRoot
 $repositoryRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $chartPath))
-$renderedPath = Join-Path $env:TEMP "olympus-foundation-rendered.yaml"
+$temporaryDirectory = if (-not [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
+    $env:RUNNER_TEMP
+} else {
+    [IO.Path]::GetTempPath()
+}
+$renderedPath = Join-Path $temporaryDirectory "olympus-foundation-rendered.yaml"
 
 function Assert-HelmTemplateFails {
     param(
@@ -57,7 +68,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Helm template failed."
 }
 
-& $KubeconformPath -summary -strict $renderedPath
+& $KubeconformPath -summary -strict -kubernetes-version $KubernetesVersion -schema-location $SchemaLocation $renderedPath
 if ($LASTEXITCODE -ne 0) {
     throw "Kubeconform validation failed."
 }
