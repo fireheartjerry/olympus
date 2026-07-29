@@ -44,7 +44,7 @@ git diff --check
 pwsh -NoLogo -NoProfile -File deploy/helm/olympus-foundation/tests/verify.ps1 ...
 ```
 
-Python result: **233 passed, 2 skipped**. The two skipped tests require the
+Python result: **234 passed, 2 skipped**. The two skipped tests require the
 explicit disposable PostgreSQL DSN. CI now provisions a digest-pinned
 PostgreSQL 17.6 service, runs migrations down/up, and supplies that DSN, so
 those tests are mandatory remotely rather than silently skipped.
