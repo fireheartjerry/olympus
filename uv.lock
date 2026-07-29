@@ -3,7 +3,14 @@ revision = 3
 requires-python = "==3.13.*"
 
 [manifest]
-build-constraints = [{ name = "hatchling", specifier = "==1.31.0" }]
+build-constraints = [
+    { name = "editables", specifier = "==0.5" },
+    { name = "hatchling", specifier = "==1.31.0" },
+    { name = "packaging", specifier = "==26.2" },
+    { name = "pathspec", specifier = "==1.1.1" },
+    { name = "pluggy", specifier = "==1.6.0" },
+    { name = "trove-classifiers", specifier = "==2026.6.1.19" },
+]
 
 [[package]]
 name = "annotated-doc"

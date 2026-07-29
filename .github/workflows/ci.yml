@@ -31,10 +31,19 @@ jobs:
         run: uv lock --check
       - name: Install locked dependencies
         run: uv sync --locked --all-groups
-      - name: Build with the locked isolated backend
+      - name: Build with hash-pinned isolated dependencies
         run: |
           export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/olympus-build-environment"
-          uv build --no-cache --out-dir "$RUNNER_TEMP/olympus-dist"
+          uv build \
+            --no-cache \
+            --build-constraints build-constraints.txt \
+            --require-hashes \
+            --out-dir "$RUNNER_TEMP/olympus-dist"
+      - name: Reject unsafe distribution contents
+        run: >-
+          uv run python -m olympus.build.verify_distribution
+          "$RUNNER_TEMP"/olympus-dist/*.whl
+          "$RUNNER_TEMP"/olympus-dist/*.tar.gz
       - name: Import from a fresh locked runtime environment
         run: |
           export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/olympus-runtime-environment"

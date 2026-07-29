@@ -28,8 +28,33 @@ dev = [
 ]
 
 [tool.uv]
-build-constraint-dependencies = ["hatchling==1.31.0"]
+build-constraint-dependencies = [
+  "editables==0.5",
+  "hatchling==1.31.0",
+  "packaging==26.2",
+  "pathspec==1.1.1",
+  "pluggy==1.6.0",
+  "trove-classifiers==2026.6.1.19",
+]
 
+[tool.hatch.build.targets.sdist]
+include = [
+  "/build-constraints.txt",
+  "/pyproject.toml",
+  "/README.md",
+  "/src/olympus",
+]
+exclude = [
+  "/.env",
+  "/.env.*",
+  "/.venv",
+  "/**/__pycache__",
+  "/**/.mypy_cache",
+  "/**/.pytest_cache",
+  "/**/.ruff_cache",
+  "/outputs",
+  "/work",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/olympus"]
