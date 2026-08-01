@@ -12,7 +12,13 @@ from olympus.nodes.crypto import generate_node_keypair
 from olympus.nodes.dispatch import NodeDispatchService, NodeJobRequest
 from olympus.nodes.errors import NodeMeshError, NodeReason
 from olympus.nodes.models import DispatchAuthority, NodeJobStatus, NodeKind, NodePlatform
-from olympus.nodes.protocol import HelloFrame, encode_frame, parse_server_frame
+from olympus.nodes.protocol import (
+    HelloFrame,
+    JobAckFrame,
+    JobResultFrame,
+    encode_frame,
+    parse_server_frame,
+)
 from olympus.nodes.registry import NodeDescription, NodeRegistry
 from olympus.nodes.session import NodeSession
 
@@ -540,3 +546,56 @@ async def test_request_attempt_is_carried_into_the_dispatch_frame() -> None:
     original = job()
     assert replace(original, attempt=3).attempt == 3
     assert replace(original, attempt=3).dedupe_key == original.dedupe_key
+
+
+async def hostile_connection(mesh: Mesh) -> tuple[NodeSession, object, asyncio.Task[None]]:
+    """Complete a real handshake, then let the test drive the node side by hand."""
+    server_channel, client_channel = create_channel_pair()
+    session = mesh.session(server_channel)
+    agent = NodeAgent(identity=mesh.identity(), providers=[FakeCapabilityProvider()])
+    handshaking = asyncio.create_task(agent.handshake(client_channel))
+    await session.handshake()
+    await handshaking
+    await mesh.dispatch.attach_session(session)
+    pump = asyncio.create_task(session.pump())
+    return session, client_channel, pump
+
+
+async def test_a_result_naming_the_wrong_attempt_or_identity_is_discarded() -> None:
+    mesh = Mesh()
+    await mesh.enroll()
+    session, client_channel, pump = await hostile_connection(mesh)
+
+    dispatching = asyncio.create_task(mesh.dispatch.run_job(job()))
+    dispatch_frame = parse_server_frame(await client_channel.receive())
+    assert dispatch_frame.type == "job-dispatch"
+    await client_channel.send(
+        encode_frame(JobAckFrame(job_id=dispatch_frame.job_id, attempt=1, accepted=True))
+    )
+
+    forged = {
+        "job_id": dispatch_frame.job_id,
+        "dedupe_key": dispatch_frame.dedupe_key,
+        "status": "succeeded",
+        "output": {"stolen": True},
+    }
+    # Wrong attempt, then a dedupe key the control plane never issued.
+    await client_channel.send(encode_frame(JobResultFrame(**{**forged, "attempt": 7})))
+    await client_channel.send(
+        encode_frame(JobResultFrame(**{**forged, "attempt": 1, "dedupe_key": "f" * 64}))
+    )
+    await asyncio.sleep(0.05)
+    assert dispatching.done() is False
+
+    await client_channel.send(encode_frame(JobResultFrame(**forged, attempt=1)))
+    try:
+        outcome = await asyncio.wait_for(dispatching, timeout=5)
+    finally:
+        await session.shutdown(reason="test-teardown")
+        pump.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await pump
+
+    assert outcome.status is NodeJobStatus.SUCCEEDED
+    assert outcome.attempt == 1
+    assert outcome.dedupe_key == job().dedupe_key

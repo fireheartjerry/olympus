@@ -24,6 +24,7 @@ from olympus.nodes.models import (
 )
 from olympus.nodes.protocol import (
     DEFAULT_HANDSHAKE_TIMEOUT_SECONDS,
+    MAX_ARTIFACTS_PER_JOB,
     MAX_CONCURRENT_JOBS_PER_NODE,
     MAX_FRAME_BYTES,
     PROTOCOL_ID,
@@ -263,12 +264,23 @@ class NodeSession:
             return
         if frame.type == "job-artifact":
             pending = self._pending.get(frame.job_id)
-            if pending is not None and len(pending.artifact_ids) < 8:
+            if (
+                pending is not None
+                and pending.attempt == frame.attempt
+                and len(pending.artifact_ids) < MAX_ARTIFACTS_PER_JOB
+            ):
                 pending.artifact_ids.append(frame.artifact_id)
             return
         if frame.type == "job-result":
             pending = self._pending.get(frame.job_id)
-            if pending is not None and not pending.result.done():
+            # A node may only terminate the exact attempt and content identity it
+            # was given. Anything else is discarded rather than trusted.
+            if (
+                pending is not None
+                and pending.attempt == frame.attempt
+                and pending.dedupe_key == frame.dedupe_key
+                and not pending.result.done()
+            ):
                 pending.acknowledged.set()
                 pending.result.set_result(frame)
             return
@@ -384,12 +396,12 @@ class NodeSession:
 
     def _outcome_of(self, frame: JobResultFrame, pending: _PendingJob) -> NodeJobOutcome:
         return NodeJobOutcome(
-            job_id=frame.job_id,
+            job_id=pending.job_id,
             node_id=self.node_id,
             capability=pending.capability,
-            dedupe_key=frame.dedupe_key,
+            dedupe_key=pending.dedupe_key,
             status=NodeJobStatus(frame.status),
-            attempt=frame.attempt,
+            attempt=pending.attempt,
             output=redact_value(dict(frame.output)),
             output_truncated=frame.output_truncated,
             artifact_ids=tuple(pending.artifact_ids) or frame.artifact_ids,
