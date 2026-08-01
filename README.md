@@ -8,7 +8,7 @@ The implementation source of truth is the approved [design specification](docs/s
 
 - Architecture: approved and resource-sized for the OVH VPS-4 production-v1 node.
 - Implementation: the foundation walking skeleton is implemented and verified locally; remote CI evidence is pending a successful pull-request run from the implementation branch or a post-merge `main` run.
-- Repository visibility: private.
+- Repository visibility: public.
 
 ## Delivery sequence
 
