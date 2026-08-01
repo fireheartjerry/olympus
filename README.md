@@ -44,6 +44,46 @@ metadata. Actual admission and network enforcement remain pending the separate
 network-policy security slice. Rendering and validation never contact a
 cluster.
 
+## Execution node mesh
+
+The VPS is the canonical always-on brain. Enrolled computers — the VPS itself,
+Jerry's Windows PC, future cloud machines — are execution nodes that expose
+typed, versioned capabilities. Nodes always dial out to the control plane over
+Tailscale-private networking; nothing dials a node, and no inbound Windows port
+is opened. The phone, Discord, and the HTTP API are command and observation
+surfaces, never execution nodes.
+
+The approved design is
+[the node-mesh specification](docs/superpowers/specs/2026-08-01-distributed-execution-node-mesh-design.md).
+The operator runbook, threat model, and revocation procedures are in
+[docs/operations/node-mesh.md](docs/operations/node-mesh.md).
+
+Exactly one capability is dispatchable in this slice: `system.inspect@1`, a
+bounded read-only host report that reads no file contents, no environment
+variables, no process list, and no network configuration, and launches no
+subprocess. `shell.powershell@1`, `fs.read@1`, `fs.write@1`, `agent.claude@1`,
+`agent.codex@1`, `browser.session@1`, `desktop.stream@1`, and
+`desktop.takeover@1` exist in the catalog as **reserved** and are refused at
+dispatch.
+
+The registry and audit chain are in-process today; PostgreSQL becomes their
+canonical owner in the persistence slice. Nothing here is deployed.
+
+### Run the end-to-end demonstration
+
+This starts an ephemeral Temporal dev server, the gateway on a loopback port, a
+real node agent over a real WebSocket, and then issues an enrollment token,
+enrolls, dispatches a job, streams progress, prints the result, exercises the
+dispatch kill switch, and prints the verified audit chain.
+
+```powershell
+uv run python -m olympus.demo.node_mesh
+```
+
+It contacts no external service, mutates no host state, and opens no listener
+other than a loopback port it chooses itself. The first run downloads the
+Temporal CLI dev server.
+
 ## Development verification
 
 Use CPython 3.13 (CI installs 3.13.13) and uv. The Helm gate additionally
