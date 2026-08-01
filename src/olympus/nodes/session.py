@@ -45,7 +45,7 @@ from olympus.nodes.protocol import (
     parse_client_frame,
     server_proof_payload,
 )
-from olympus.nodes.redaction import redact_text, redact_value
+from olympus.nodes.redaction import bound_output, redact_text
 from olympus.nodes.registry import NodeRegistry
 
 ProgressCallback = Callable[[JobProgressFrame], Awaitable[None] | None]
@@ -60,10 +60,13 @@ class _PendingJob:
     dedupe_key: str
     capability: str
     deadline_seconds: int
+    max_output_bytes: int
+    max_progress_events: int
     acknowledged: asyncio.Event = field(default_factory=asyncio.Event)
     result: asyncio.Future[JobResultFrame] = field(default_factory=asyncio.Future)
     duplicate: bool = False
     progress_events: int = 0
+    progress_events_dropped: int = 0
     progress_delivery_failures: int = 0
     artifact_ids: list[str] = field(default_factory=list)
     on_progress: ProgressCallback | None = None
@@ -216,11 +219,15 @@ class NodeSession:
         return attached
 
     async def _refuse(self, reason: NodeReason) -> None:
+        """Close on a protocol violation with the same teardown as a lost socket.
+
+        Latching ``_closed`` here without the rest of the teardown would orphan
+        every job waiting on this session and leave the registry believing the
+        node is still connected, so the full shutdown runs on this path too.
+        """
         with contextlib.suppress(ChannelClosed, NodeMeshError):
             await self._send(SessionCloseFrame(reason=reason.value))
-        with contextlib.suppress(ChannelClosed):
-            await self._channel.close(code=CLOSE_POLICY_VIOLATION, reason=reason.value)
-        self._closed.set()
+        await self.shutdown(reason=reason.value, code=CLOSE_POLICY_VIOLATION)
 
     async def pump(self) -> None:
         """Route inbound frames until the channel closes or a bound is violated."""
@@ -290,6 +297,11 @@ class NodeSession:
         pending = self._pending.get(frame.job_id)
         if pending is None or pending.attempt != frame.attempt:
             return
+        if pending.progress_events >= pending.max_progress_events:
+            # The bound belongs on this end: a compromised node must not be able
+            # to drive unbounded control-plane and Temporal work.
+            pending.progress_events_dropped += 1
+            return
         pending.progress_events += 1
         if pending.on_progress is None:
             return
@@ -333,6 +345,8 @@ class NodeSession:
             dedupe_key=dedupe_key,
             capability=capability,
             deadline_seconds=deadline_seconds,
+            max_output_bytes=max_output_bytes,
+            max_progress_events=max_progress_events,
             on_progress=on_progress,
         )
         self._pending[job_id] = pending
@@ -395,6 +409,7 @@ class NodeSession:
         return self._outcome_of(frame, pending)
 
     def _outcome_of(self, frame: JobResultFrame, pending: _PendingJob) -> NodeJobOutcome:
+        output, truncated_here = bound_output(dict(frame.output), pending.max_output_bytes)
         return NodeJobOutcome(
             job_id=pending.job_id,
             node_id=self.node_id,
@@ -402,8 +417,8 @@ class NodeSession:
             dedupe_key=pending.dedupe_key,
             status=NodeJobStatus(frame.status),
             attempt=pending.attempt,
-            output=redact_value(dict(frame.output)),
-            output_truncated=frame.output_truncated,
+            output=output,
+            output_truncated=frame.output_truncated or truncated_here,
             artifact_ids=tuple(pending.artifact_ids) or frame.artifact_ids,
             reason=frame.reason,
             message=redact_text(frame.message),
@@ -420,7 +435,7 @@ class NodeSession:
             await self._send(JobCancelFrame(job_id=job_id, attempt=pending.attempt, reason=reason))
         return True
 
-    async def shutdown(self, *, reason: str = "") -> None:
+    async def shutdown(self, *, reason: str = "", code: int = CLOSE_NORMAL) -> None:
         """Close the channel and fail every job still waiting on this session."""
         if self._closed.is_set():
             return
@@ -436,7 +451,7 @@ class NodeSession:
                 node_id=self.node.node_id, session_id=self.session_id, reason=reason
             )
         with contextlib.suppress(ChannelClosed):
-            await self._channel.close(code=CLOSE_NORMAL, reason=reason)
+            await self._channel.close(code=code, reason=reason)
 
 
 def artifact_digest_matches(frame: JobArtifactFrame, expected_sha256: str) -> bool:

@@ -10,6 +10,7 @@ from olympus.gateway.settings import GatewaySettings
 from olympus.nodes.capabilities import SYSTEM_INSPECT
 from olympus.nodes.crypto import generate_node_keypair
 from olympus.nodes.dispatch import NodeDispatchService, NodeJobRequest
+from olympus.nodes.errors import NodeMeshError, NodeReason
 from olympus.nodes.protocol import PROTOCOL_ID
 from olympus.nodes.registry import NodeRegistry
 
@@ -31,12 +32,15 @@ class FakeJobStarter:
     def __init__(self) -> None:
         self.started: list[NodeJobRequest] = []
         self.cancelled: list[str] = []
+        self.refuse_cancel: NodeReason | None = None
 
     async def start(self, request: NodeJobRequest) -> str:
         self.started.append(request)
         return request.job_id
 
     async def cancel(self, job_id: str) -> None:
+        if self.refuse_cancel is not None:
+            raise NodeMeshError(self.refuse_cancel, "unknown node job")
         self.cancelled.append(job_id)
 
 
@@ -313,11 +317,23 @@ def test_unknown_nodes_return_not_found() -> None:
     assert response.status_code == 404
 
 
-def test_cancelling_signals_the_workflow_and_the_live_session() -> None:
+def test_cancelling_signals_the_owning_workflow() -> None:
     client, _, starter = build_client()
     response = client.post("/v1/nodes/jobs/job-42/cancel", json={}, headers=HEADERS)
     assert response.status_code == 202
     assert starter.cancelled == ["job-42"]
+    # The frame that actually reaches a live node session is covered by
+    # tests/nodes/test_session_dispatch.py::
+    # test_cancellation_reaches_the_node_and_produces_a_cancelled_outcome.
+
+
+def test_cancelling_a_closed_job_is_a_not_found_rather_than_a_server_error() -> None:
+    client, _, starter = build_client()
+    starter.refuse_cancel = NodeReason.JOB_UNKNOWN
+
+    response = client.post("/v1/nodes/jobs/already-done/cancel", json={}, headers=HEADERS)
+    assert response.status_code == 404
+    assert response.json()["detail"] == "job-unknown"
 
 
 def test_the_console_shell_carries_no_data_and_no_credential() -> None:

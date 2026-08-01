@@ -13,7 +13,7 @@ integration was created or mutated to produce this evidence.
 | Parent amendment | Section 23.1 of `2026-07-28-agentic-vps-god-agent-design.md` |
 | Roadmap slice | Slice 1N in `2026-07-29-olympus-implementation-roadmap-design.md` |
 | Operator runbook | `docs/operations/node-mesh.md` |
-| Local suite | `uv run pytest -W error` — **239 passed**, of which 142 are new. |
+| Local suite | `uv run pytest -W error` — **253 passed**, of which 156 are new. |
 | Post-merge CI | Pending. |
 | Acceptance decision | Pending CI evidence. |
 
@@ -24,7 +24,7 @@ The gate was run on 2026-08-01 against the working tree.
 - `uv lock --check`, `uv sync --locked --all-groups`, `ruff format --check`,
   `ruff check`, and strict `mypy` completed successfully across 48 source
   files.
-- `uv run pytest -W error` completed with **239 passed**. That includes:
+- `uv run pytest -W error` completed with **253 passed**. That includes:
   - registry tests covering enrollment issuance, expiry, replay, revocation,
     scope mismatch, declaration narrowing, heartbeat expiry, session
     replacement, the dispatch admission matrix, freeze idempotence, monotonic
@@ -108,6 +108,44 @@ integration, no live infrastructure, and no external-effect API.
   its dependencies by hash, passes the enrollment token on standard input
   rather than in the process argument list, and is re-runnable.
 - [x] No secret, key, or token is committed to the repository.
+- [x] The progress-event cap and the per-capability output bound are enforced
+  by the control plane on receipt, not only by the node that they defend
+  against.
+- [x] A protocol violation tears the session down completely: pending jobs
+  fail, the node is detached, and the closure is audited.
+- [x] A job is pinned to one node before dispatch, so a retry after a lost
+  connection reaches the same machine and replays rather than repeating the
+  work elsewhere.
+- [x] The activity retry interval exceeds the agent's minimum reconnect
+  backoff, so the documented reconnect recovery can actually succeed.
+- [x] An artifact too large to fit in a frame is not advertised in the result.
+- [x] Redaction covers object keys as well as values.
+
+## Adversarial review
+
+A five-dimension adversarial review (authorization, asyncio correctness,
+protocol state machine, Temporal ownership, and documented-claim accuracy) was
+run against this slice with independent reproduction scripts. It raised
+sixteen findings. All were addressed:
+
+| Finding | Resolution |
+| --- | --- |
+| Activity retry fired one second after disconnect, before any node could reconnect | Retry interval raised above the agent's minimum reconnect backoff |
+| An unpinned job re-selected a node on retry and ran the work twice on two machines | Node selection is now its own activity; the workflow pins the node before dispatch |
+| A protocol violation half-tore-down the session, orphaning jobs and leaving the node "connected" | The refusal path now runs the full shutdown |
+| Progress cap enforced only inside the node | Enforced on receipt as well |
+| Output bound enforced only inside the node | Enforced on receipt as well |
+| Oversized artifacts silently dropped but still advertised | Only artifacts actually queued are advertised; the artifact ceiling now fits inside a frame |
+| Redaction skipped object keys | Keys are redacted too |
+| Cancelling a closed job returned HTTP 500 | Mapped to the intended 404 |
+| Workflow status query reported `dispatched` after a failure | Status is set on the failure path |
+| Cancelled outcome lost the node identity | The pinned node is carried into the synthesized outcome |
+| `last_progress` query was structurally dead | Removed; replaced with `assigned_node`, which is populated |
+| Documented "no file contents" claim contradicted by `/proc` reads | Claim corrected in the spec, README, and both docstrings |
+| Runbook showed the enrollment token as a command-line argument | Corrected to the stdin form the installer actually uses |
+| Tautological node-proof test | Replaced with one that breaks verification on every bound field |
+| Inspection secrecy test asserted against an injected fake probe | A second test exercises the real probe |
+| Cancel API test named a behaviour it did not assert | Renamed to what it asserts, with a pointer to the test that covers the rest |
 
 ## Known limitations recorded rather than hidden
 

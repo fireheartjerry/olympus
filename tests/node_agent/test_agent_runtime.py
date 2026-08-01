@@ -1,4 +1,5 @@
 import json
+import os
 import stat
 from pathlib import Path
 from typing import Any
@@ -251,3 +252,27 @@ def test_status_prints_a_redacted_configuration(tmp_path: Path, capsys: Any) -> 
     assert exit_code == 0
     assert config.private_key not in printed
     assert "[redacted]" in printed
+
+
+async def test_the_real_probe_reports_only_its_declared_counters(tmp_path: Path) -> None:
+    # The guarantee is about LocalSystemProbe, the class that actually touches
+    # the host, so this test must not inject a fake.
+    provider = SystemInspectProvider(
+        state_directory=tmp_path, agent_version="0.1.0", started_at=0.0
+    )
+    result, _ = await collect(provider, {})
+    sections = result.output["sections"]
+
+    assert result.status == "succeeded"
+    assert set(sections) == set(INSPECT_SECTIONS)
+    assert set(sections["os"]) == {"system", "release", "machine", "python_version"}
+    assert set(sections["cpu"]) == {"logical_cores", "load_average"}
+    assert set(sections["memory"]) == {"total_mib", "available_mib"}
+    assert set(sections["disk"]) == {"path", "total_mib", "free_mib"}
+    assert set(sections["uptime"]) == {"host_uptime_seconds"}
+    assert set(sections["agent"]) == {"agent_version", "agent_uptime_seconds"}
+
+    rendered = json.dumps(result.output)
+    for value in list(os.environ.values())[:50]:
+        if len(value) > 12:
+            assert value not in rendered

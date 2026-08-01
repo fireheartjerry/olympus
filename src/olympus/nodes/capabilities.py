@@ -90,8 +90,9 @@ SYSTEM_INSPECT = _descriptor(
     "system.inspect",
     1,
     "Bounded system inspection",
-    "Report a fixed set of non-sensitive host counters. Reads no file contents, "
-    "no environment variables, no process list, and no network configuration.",
+    "Report a fixed set of non-sensitive host counters. Reads no environment "
+    "variable, no process list, no network configuration, and no user data; the "
+    "only files it opens are the fixed counters /proc/meminfo and /proc/uptime.",
     CapabilityStatus.ENABLED,
     CapabilityRisk.OBSERVE,
     mutating=False,

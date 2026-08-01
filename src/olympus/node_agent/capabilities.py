@@ -78,8 +78,10 @@ class SystemProbe(Protocol):
 class LocalSystemProbe:
     """Reads a fixed set of non-sensitive counters using only the standard library.
 
-    It never reads file contents, environment variables, process lists, network
-    configuration, or user data, and never launches a subprocess.
+    It never reads environment variables, process lists, network configuration,
+    or user data, and never launches a subprocess. The only files it opens are
+    the two fixed Linux counters ``/proc/meminfo`` and ``/proc/uptime``, from
+    which it parses numbers only.
     """
 
     def operating_system(self) -> dict[str, Any]:

@@ -633,12 +633,22 @@ def register_node_routes(
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> dict[str, str]:
         authority = operator(commander_ids, authority_lease_ids, authorization)
-        await runtime.job_starter.cancel(job_id)
-        await dispatch.cancel_job(
+        # Signal the workflow first, but a job whose workflow has already closed
+        # must still reach the node: a stale cancel is a 404, never a 500, and
+        # never a reason to skip the session-level cancel frame.
+        signalled = True
+        try:
+            await runtime.job_starter.cancel(job_id)
+        except NodeMeshError as exc:
+            signalled = False
+            refusal = _refuse(exc)
+        cancelled = await dispatch.cancel_job(
             job_id,
             reason=request.reason or NodeReason.JOB_CANCELLED.value,
             actor=authority.commander_id,
         )
+        if not signalled and not cancelled:
+            raise refusal
         return {"job_id": job_id, "status": "cancelling"}
 
     @router.get("/v1/nodes/control", response_model=ControlResponse)

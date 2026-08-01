@@ -69,7 +69,7 @@ async def running_control_plane() -> AsyncIterator[Harness]:
             environment.client,
             task_queue=settings.node_task_queue,
             workflows=[NodeJobWorkflow],
-            activities=[activities.dispatch_node_job],
+            activities=[activities.select_node, activities.dispatch_node_job],
         )
         try:
             for _ in range(200):

@@ -123,16 +123,46 @@ def test_signatures_verify_only_over_the_exact_payload() -> None:
 
 
 def test_a_node_proof_is_bound_to_the_session_and_the_server_nonce() -> None:
-    first = node_proof_payload(
-        protocol=PROTOCOL_ID,
-        session_id="nsx-1",
-        node_id="node-1",
-        server_nonce="a" * 32,
-        capabilities_digest="0" * 64,
+    keys = generate_node_keypair()
+
+    def payload(**overrides: str) -> dict[str, str]:
+        fields = {
+            "protocol": PROTOCOL_ID,
+            "session_id": "nsx-1",
+            "node_id": "node-1",
+            "server_nonce": "a" * 32,
+            "capabilities_digest": "0" * 64,
+        }
+        fields.update(overrides)
+        return node_proof_payload(**fields)  # type: ignore[arg-type]
+
+    original = payload()
+    signature = sign_payload(keys.private_key, original)
+    verify_payload(keys.public_key, original, signature, NodeReason.NODE_PROOF_INVALID)
+
+    # Every field the proof is supposed to bind must break verification.
+    for field, value in [
+        ("session_id", "nsx-2"),
+        ("server_nonce", "b" * 32),
+        ("node_id", "node-2"),
+        ("capabilities_digest", "1" * 64),
+        ("protocol", "olympus-node/2"),
+    ]:
+        with pytest.raises(NodeMeshError) as failure:
+            verify_payload(
+                keys.public_key,
+                payload(**{field: value}),
+                signature,
+                NodeReason.NODE_PROOF_INVALID,
+            )
+        assert failure.value.reason is NodeReason.NODE_PROOF_INVALID
+
+    assert (
+        original["purpose"]
+        != server_proof_payload(
+            protocol=PROTOCOL_ID, session_id="nsx-1", node_id="node-1", node_nonce="a" * 32
+        )["purpose"]
     )
-    second = replace_nonce = dict(first)
-    second["server_nonce"] = "b" * 32
-    assert first != replace_nonce or first["server_nonce"] != second["server_nonce"]
 
 
 def test_public_keys_derive_from_private_keys() -> None:
@@ -213,6 +243,17 @@ def test_client_and_server_frames_are_separate_vocabularies() -> None:
     assert parse_client_frame(heartbeat).type == "heartbeat"
     with pytest.raises(NodeMeshError):
         parse_server_frame(heartbeat)
+
+
+def test_redaction_covers_object_keys_as_well_as_values() -> None:
+    # A credential used as a JSON key is exactly as exposed as one used as a
+    # value, so both positions must be masked.
+    redacted = redact_value(
+        {"olynode_deadbeef_supersecretvalue": "x", "value": "olynode_deadbeef_supersecretvalue"}
+    )
+    assert "supersecretvalue" not in str(redacted)
+    assert REDACTION_PLACEHOLDER in str(list(redacted)[0])
+    assert "hunter2" not in str(redact_value({"password=hunter2": "x"}))
 
 
 @pytest.mark.parametrize(

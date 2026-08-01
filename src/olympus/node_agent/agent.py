@@ -2,14 +2,12 @@ import asyncio
 import base64
 import contextlib
 import hashlib
-import json
 import platform
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
 
 from olympus.node_agent.capabilities import (
     CapabilityArtifact,
@@ -43,7 +41,7 @@ from olympus.nodes.protocol import (
     parse_server_frame,
     server_proof_payload,
 )
-from olympus.nodes.redaction import redact_and_bound, redact_value
+from olympus.nodes.redaction import bound_output, redact_and_bound
 
 AGENT_VERSION = "0.1.0"
 LEDGER_CAPACITY = 64
@@ -147,10 +145,13 @@ class NodeAgent:
     def active_jobs(self) -> int:
         return len(self._running)
 
-    def _enqueue(self, frame: ClientFrame) -> None:
-        """Queue a frame without blocking the caller or being interrupted by cancellation."""
-        with contextlib.suppress(asyncio.QueueFull, NodeMeshError):
+    def _enqueue(self, frame: ClientFrame) -> bool:
+        """Queue a frame without blocking; report whether it will actually be sent."""
+        try:
             self._outbox.put_nowait(encode_frame(frame))
+        except (asyncio.QueueFull, NodeMeshError):
+            return False
+        return True
 
     async def run(
         self, channel: NodeChannel, *, on_ready: Callable[[SessionReadyFrame], None] | None = None
@@ -388,7 +389,7 @@ class NodeAgent:
             reason = NodeReason.JOB_FAILED.value
             message = redact_and_bound(f"{type(exc).__name__}: {exc}", 480)[0]
 
-        output, truncated = _bound_output(
+        output, truncated = bound_output(
             dict(result.output) if result is not None else {}, frame.max_output_bytes
         )
         artifact_ids = self._emit_artifacts(frame, result)
@@ -422,8 +423,9 @@ class NodeAgent:
             encoded = base64.b64encode(artifact.data).decode("ascii")
             if len(encoded) > MAX_ARTIFACT_BYTES:
                 continue
-            self._enqueue(_artifact_frame(frame, artifact, encoded))
-            emitted.append(artifact.artifact_id)
+            # Only advertise an artifact the control plane will actually receive.
+            if self._enqueue(_artifact_frame(frame, artifact, encoded)):
+                emitted.append(artifact.artifact_id)
         return tuple(emitted)
 
     def _result_frame(
@@ -454,13 +456,3 @@ def _artifact_frame(
         sha256=hashlib.sha256(artifact.data).hexdigest(),
         data=encoded,
     )
-
-
-def _bound_output(output: dict[str, Any], max_bytes: int) -> tuple[dict[str, Any], bool]:
-    """Redact then bound a structured result so no node can flood the control plane."""
-    redacted: dict[str, Any] = redact_value(output)
-    encoded = json.dumps(redacted, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    if len(encoded.encode("utf-8")) <= max_bytes:
-        return redacted, False
-    preview, _ = redact_and_bound(encoded, max(max_bytes - 64, 128))
-    return {"preview": preview}, True

@@ -198,9 +198,11 @@ system identity, logical core count and load, total and available memory,
 free space on the agent's own state directory, host uptime, and the agent's
 own version and uptime.
 
-It reads no file contents, no environment variables, no process list, no
-network configuration, and no user data, and it never launches a subprocess.
-Its implementation uses only the standard library.
+It reads no environment variable, no process list, no network configuration,
+and no user data, and it never launches a subprocess. The only files it opens
+are the two fixed Linux counters `/proc/meminfo` and `/proc/uptime`, from which
+it parses numbers only; on Windows the equivalents come from `GlobalMemoryStatusEx`
+and `GetTickCount64`. Its implementation uses only the standard library.
 
 ## 6. Machine Registry
 
@@ -308,7 +310,7 @@ forbidden, and bounded at 256 KiB.
 | Frame size | 256 KiB |
 | Job output | capability-declared, 16 KiB for `system.inspect@1` |
 | Progress events per job | 200 |
-| Artifacts per job / artifact size | 8 / 1 MiB |
+| Artifacts per job / artifact size | 8 / 192 KiB base64 (~144 KiB raw), bounded below the frame limit so an artifact is never advertised but undeliverable |
 | Concurrent jobs per node | 4 |
 | Declared capabilities | 32 |
 | Heartbeat interval / expiry | 15 s / 45 s |

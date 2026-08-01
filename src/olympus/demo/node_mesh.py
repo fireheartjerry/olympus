@@ -78,7 +78,7 @@ async def main() -> int:
             client,
             task_queue=settings.node_task_queue,
             workflows=[NodeJobWorkflow],
-            activities=[activities.dispatch_node_job],
+            activities=[activities.select_node, activities.dispatch_node_job],
         )
         agent_task: asyncio.Task[None] | None = None
         try:

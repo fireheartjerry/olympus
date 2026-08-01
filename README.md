@@ -59,9 +59,10 @@ The operator runbook, threat model, and revocation procedures are in
 [docs/operations/node-mesh.md](docs/operations/node-mesh.md).
 
 Exactly one capability is dispatchable in this slice: `system.inspect@1`, a
-bounded read-only host report that reads no file contents, no environment
-variables, no process list, and no network configuration, and launches no
-subprocess. `shell.powershell@1`, `fs.read@1`, `fs.write@1`, `agent.claude@1`,
+bounded read-only host report that reads no environment variable, no process
+list, no network configuration, and no user data, launches no subprocess, and
+opens only the two fixed Linux counter files `/proc/meminfo` and
+`/proc/uptime`. `shell.powershell@1`, `fs.read@1`, `fs.write@1`, `agent.claude@1`,
 `agent.codex@1`, `browser.session@1`, `desktop.stream@1`, and
 `desktop.takeover@1` exist in the catalog as **reserved** and are refused at
 dispatch.

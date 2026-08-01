@@ -11,10 +11,18 @@ from olympus.nodes.channel import create_channel_pair
 from olympus.nodes.crypto import generate_node_keypair
 from olympus.nodes.dispatch import NodeDispatchService, NodeJobRequest
 from olympus.nodes.errors import NodeMeshError, NodeReason
-from olympus.nodes.models import DispatchAuthority, NodeJobStatus, NodeKind, NodePlatform
+from olympus.nodes.models import (
+    DispatchAuthority,
+    NodeJobStatus,
+    NodeKind,
+    NodePlatform,
+    NodeState,
+)
 from olympus.nodes.protocol import (
+    PROTOCOL_ID,
     HelloFrame,
     JobAckFrame,
+    JobProgressFrame,
     JobResultFrame,
     encode_frame,
     parse_server_frame,
@@ -599,3 +607,141 @@ async def test_a_result_naming_the_wrong_attempt_or_identity_is_discarded() -> N
     assert outcome.status is NodeJobStatus.SUCCEEDED
     assert outcome.attempt == 1
     assert outcome.dedupe_key == job().dedupe_key
+
+
+async def test_the_control_plane_enforces_the_progress_cap_a_node_ignores() -> None:
+    mesh = Mesh()
+    await mesh.enroll()
+    session, client_channel, pump = await hostile_connection(mesh)
+    delivered: list[str] = []
+
+    async def on_progress(frame: object) -> None:
+        delivered.append(frame.message)  # type: ignore[attr-defined]
+
+    dispatching = asyncio.create_task(mesh.dispatch.run_job(job(), on_progress=on_progress))
+    dispatch_frame = parse_server_frame(await client_channel.receive())
+    await client_channel.send(
+        encode_frame(JobAckFrame(job_id=dispatch_frame.job_id, attempt=1, accepted=True))
+    )
+    cap = dispatch_frame.max_progress_events
+    for index in range(cap + 50):
+        await client_channel.send(
+            encode_frame(
+                JobProgressFrame(
+                    job_id=dispatch_frame.job_id, attempt=1, sequence=index % 200, message="flood"
+                )
+            )
+        )
+    await client_channel.send(
+        encode_frame(
+            JobResultFrame(
+                job_id=dispatch_frame.job_id,
+                attempt=1,
+                dedupe_key=dispatch_frame.dedupe_key,
+                status="succeeded",
+            )
+        )
+    )
+    try:
+        await asyncio.wait_for(dispatching, timeout=10)
+    finally:
+        await session.shutdown(reason="test-teardown")
+        pump.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await pump
+
+    assert len(delivered) == cap
+    assert mesh.dispatch.jobs()[0].progress_events == cap
+
+
+async def test_the_control_plane_bounds_output_a_node_claims_is_untruncated() -> None:
+    mesh = Mesh()
+    await mesh.enroll()
+    session, client_channel, pump = await hostile_connection(mesh)
+
+    dispatching = asyncio.create_task(mesh.dispatch.run_job(job()))
+    dispatch_frame = parse_server_frame(await client_channel.receive())
+    await client_channel.send(
+        encode_frame(JobAckFrame(job_id=dispatch_frame.job_id, attempt=1, accepted=True))
+    )
+    await client_channel.send(
+        encode_frame(
+            JobResultFrame(
+                job_id=dispatch_frame.job_id,
+                attempt=1,
+                dedupe_key=dispatch_frame.dedupe_key,
+                status="succeeded",
+                output={"blob": "A" * 100_000},
+                output_truncated=False,
+            )
+        )
+    )
+    try:
+        outcome = await asyncio.wait_for(dispatching, timeout=10)
+    finally:
+        await session.shutdown(reason="test-teardown")
+        pump.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await pump
+
+    assert outcome.output_truncated is True
+    assert set(outcome.output) == {"preview"}
+    assert len(str(outcome.output["preview"])) <= SYSTEM_INSPECT.max_output_bytes
+
+
+async def test_a_protocol_violation_tears_the_session_down_completely() -> None:
+    mesh = Mesh()
+    await mesh.enroll()
+    session, client_channel, pump = await hostile_connection(mesh)
+
+    dispatching = asyncio.create_task(mesh.dispatch.run_job(job()))
+    dispatch_frame = parse_server_frame(await client_channel.receive())
+    await client_channel.send(
+        encode_frame(JobAckFrame(job_id=dispatch_frame.job_id, attempt=1, accepted=True))
+    )
+    # A well-formed frame that is illegal mid-session must fail the job promptly
+    # and detach the node, not leave it orphaned until its deadline expires.
+    await client_channel.send(
+        encode_frame(
+            HelloFrame(
+                protocol=PROTOCOL_ID,
+                node_id=mesh.node_id,
+                agent_version="0.1.0",
+                platform="windows",
+                architecture="AMD64",
+                node_nonce="a" * 32,
+            )
+        )
+    )
+    with pytest.raises(NodeMeshError) as failure:
+        await asyncio.wait_for(dispatching, timeout=5)
+    pump.cancel()
+    with contextlib.suppress(asyncio.CancelledError, Exception):
+        await pump
+
+    assert failure.value.reason is NodeReason.SESSION_CLOSED
+    record = await mesh.registry.get_node(mesh.node_id)
+    assert record.session_id is None
+    assert mesh.registry.state_of(record, mesh.registry.now()) is not NodeState.ONLINE
+
+
+async def test_an_artifact_too_large_to_send_is_not_advertised() -> None:
+    mesh = Mesh()
+    await mesh.enroll()
+    provider = FakeCapabilityProvider(
+        progress_messages=(),
+        artifacts=(
+            CapabilityArtifact(
+                artifact_id="oversized",
+                kind="screenshot",
+                media_type="image/png",
+                data=b"\x00" * 400_000,
+            ),
+        ),
+    )
+    connection = await connect(mesh, provider)
+    try:
+        outcome = await asyncio.wait_for(mesh.dispatch.run_job(job()), timeout=10)
+    finally:
+        await connection.aclose()
+    assert outcome.artifact_ids == ()

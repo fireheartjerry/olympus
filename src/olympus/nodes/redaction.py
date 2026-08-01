@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Any
 
@@ -44,14 +45,19 @@ def redact_text(value: str) -> str:
 
 
 def redact_value(value: Any, *, depth: int = 0) -> Any:
-    """Recursively redact strings inside JSON-shaped data."""
+    """Recursively redact strings inside JSON-shaped data, keys included.
+
+    Keys are redacted as well as values: a credential used as an object key is
+    exactly as exposed as one used as a value, and JSON has no rule against it.
+    """
     if depth >= _MAX_REDACTION_DEPTH:
         return REDACTION_PLACEHOLDER
     if isinstance(value, str):
         return redact_text(value)
     if isinstance(value, dict):
         return {
-            str(key): redact_value(item, depth=depth + 1) for key, item in list(value.items())[:64]
+            redact_text(str(key)): redact_value(item, depth=depth + 1)
+            for key, item in list(value.items())[:64]
         }
     if isinstance(value, (list, tuple)):
         return [redact_value(item, depth=depth + 1) for item in list(value)[:64]]
@@ -70,3 +76,18 @@ def bound_text(value: str, max_bytes: int) -> tuple[str, bool]:
 def redact_and_bound(value: str, max_bytes: int) -> tuple[str, bool]:
     """Redact first, then bound, so truncation can never split a secret open."""
     return bound_text(redact_text(value), max_bytes)
+
+
+def bound_output(output: dict[str, Any], max_bytes: int) -> tuple[dict[str, Any], bool]:
+    """Redact then bound a structured result, reporting whether it was truncated.
+
+    The same bound is applied by the node before sending and by the control
+    plane on receipt, so a node that ignores its own limit cannot push oversized
+    data into durable workflow state.
+    """
+    redacted: dict[str, Any] = redact_value(output)
+    encoded = json.dumps(redacted, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    if len(encoded.encode("utf-8")) <= max_bytes:
+        return redacted, False
+    preview, _ = redact_and_bound(encoded, max(max_bytes - 64, 128))
+    return {"preview": preview}, True
