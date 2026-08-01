@@ -36,13 +36,17 @@ class MemoryChannel:
         self._inbox = inbox
         self._outbox = outbox
         self._closed = False
+        self._peer: MemoryChannel | None = None
 
     @property
     def closed(self) -> bool:
         return self._closed
 
     async def send(self, payload: str) -> None:
-        if self._closed:
+        # Sending to a peer that has gone away fails here exactly as it does on
+        # a real socket, so tests written against this channel see the same
+        # failure modes production does.
+        if self._closed or (self._peer is not None and self._peer.closed):
             raise ChannelClosed("send on a closed channel")
         await self._outbox.put(payload)
 
@@ -71,4 +75,6 @@ def create_channel_pair(maxsize: int = 256) -> tuple[MemoryChannel, MemoryChanne
     right_to_left: asyncio.Queue[str | None] = asyncio.Queue(maxsize=maxsize)
     left = MemoryChannel(inbox=right_to_left, outbox=left_to_right)
     right = MemoryChannel(inbox=left_to_right, outbox=right_to_left)
+    left._peer = right
+    right._peer = left
     return left, right

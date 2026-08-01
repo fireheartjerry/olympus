@@ -117,14 +117,17 @@ async def _serve(config: NodeAgentConfig, *, state_directory: Path, once: bool) 
         control_plane_public_key=config.control_plane_public_key,
         control_plane_key_id=config.control_plane_key_id,
     )
+    # One agent for the lifetime of the process: its dedupe ledger is what makes
+    # a job replay after a reconnect instead of running a second time, so
+    # rebuilding it per attempt would silently discard exactly that guarantee.
+    agent = NodeAgent(
+        identity=identity,
+        providers=_providers(config, state_directory),
+        node_platform=_normalized_platform(),
+        architecture=platform.machine() or "unknown",
+    )
     backoff = MIN_BACKOFF_SECONDS
     while True:
-        agent = NodeAgent(
-            identity=identity,
-            providers=_providers(config, state_directory),
-            node_platform=_normalized_platform(),
-            architecture=platform.machine() or "unknown",
-        )
         try:
             async with open_session_channel(config.session_url) as channel:
                 print(f"connected to {config.session_url}")

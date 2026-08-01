@@ -8,7 +8,7 @@ from olympus.node_agent.agent import AgentIdentity, NodeAgent
 from olympus.node_agent.capabilities import CapabilityArtifact, FakeCapabilityProvider
 from olympus.nodes.capabilities import SYSTEM_INSPECT
 from olympus.nodes.channel import create_channel_pair
-from olympus.nodes.crypto import generate_node_keypair
+from olympus.nodes.crypto import digest_of, generate_node_keypair, random_nonce, sign_payload
 from olympus.nodes.dispatch import NodeDispatchService, NodeJobRequest
 from olympus.nodes.errors import NodeMeshError, NodeReason
 from olympus.nodes.models import (
@@ -20,11 +20,13 @@ from olympus.nodes.models import (
 )
 from olympus.nodes.protocol import (
     PROTOCOL_ID,
+    AttestFrame,
     HelloFrame,
     JobAckFrame,
     JobProgressFrame,
     JobResultFrame,
     encode_frame,
+    node_proof_payload,
     parse_server_frame,
 )
 from olympus.nodes.registry import NodeDescription, NodeRegistry
@@ -745,3 +747,57 @@ async def test_an_artifact_too_large_to_send_is_not_advertised() -> None:
     finally:
         await connection.aclose()
     assert outcome.artifact_ids == ()
+
+
+async def test_a_handshake_that_dies_before_ready_leaves_no_phantom_node() -> None:
+    mesh = Mesh()
+    await mesh.enroll()
+    server_channel, client_channel = create_channel_pair()
+    session = mesh.session(server_channel)
+    handshaking = asyncio.create_task(session.handshake())
+
+    await client_channel.send(
+        encode_frame(
+            HelloFrame(
+                protocol=PROTOCOL_ID,
+                node_id=mesh.node_id,
+                agent_version="0.1.0",
+                platform="windows",
+                architecture="AMD64",
+                declared_capabilities=(SYSTEM_INSPECT.name,),
+                node_nonce=random_nonce(),
+            )
+        )
+    )
+    challenge = parse_server_frame(await client_channel.receive())
+    await client_channel.send(
+        encode_frame(
+            AttestFrame(
+                session_id=challenge.session_id,
+                node_proof=sign_payload(
+                    mesh.node_keys.private_key,
+                    node_proof_payload(
+                        protocol=PROTOCOL_ID,
+                        session_id=challenge.session_id,
+                        node_id=mesh.node_id,
+                        server_nonce=challenge.server_nonce,
+                        capabilities_digest=digest_of([SYSTEM_INSPECT.name]),
+                    ),
+                ),
+            )
+        )
+    )
+    # The node vanishes after attesting but before it ever reads the ready
+    # frame: the window in which the session is already attached to its record.
+    await client_channel.close()
+    with contextlib.suppress(Exception):
+        await asyncio.wait_for(handshaking, timeout=5)
+
+    record = await mesh.registry.get_node(mesh.node_id)
+    assert record.session_id is None
+    assert mesh.registry.state_of(record, mesh.registry.now()) is not NodeState.ONLINE
+    with pytest.raises(NodeMeshError) as failure:
+        await mesh.registry.assert_dispatchable(
+            node_id=mesh.node_id, capability=SYSTEM_INSPECT.name
+        )
+    assert failure.value.reason is NodeReason.NODE_OFFLINE

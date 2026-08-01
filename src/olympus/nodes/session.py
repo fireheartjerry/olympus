@@ -145,6 +145,13 @@ class NodeSession:
         except NodeMeshError as exc:
             await self._refuse(exc.reason)
             raise
+        except BaseException:
+            # The session is attached to its node record before the ready frame
+            # is sent. A channel that dies in that window must still be torn
+            # down, or the registry reports a node as online with no session
+            # behind it and selection can prefer that phantom over a live peer.
+            await self.shutdown(reason=NodeReason.SESSION_CLOSED.value)
+            raise
 
     async def _handshake(self) -> NodeRecord:
         hello = await self._receive()

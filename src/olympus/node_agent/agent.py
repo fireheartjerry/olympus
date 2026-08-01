@@ -156,8 +156,15 @@ class NodeAgent:
     async def run(
         self, channel: NodeChannel, *, on_ready: Callable[[SessionReadyFrame], None] | None = None
     ) -> None:
-        """Complete the handshake and serve jobs until the channel closes."""
+        """Complete the handshake and serve jobs until the channel closes.
+
+        An agent is reused across reconnects so its result ledger survives; the
+        outbox is drained first so frames queued for the dead session are not
+        delivered to the new one.
+        """
         self._stop = asyncio.Event()
+        while not self._outbox.empty():
+            self._outbox.get_nowait()
         ready = await self.handshake(channel)
         if on_ready is not None:
             on_ready(ready)

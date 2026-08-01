@@ -13,7 +13,7 @@ integration was created or mutated to produce this evidence.
 | Parent amendment | Section 23.1 of `2026-07-28-agentic-vps-god-agent-design.md` |
 | Roadmap slice | Slice 1N in `2026-07-29-olympus-implementation-roadmap-design.md` |
 | Operator runbook | `docs/operations/node-mesh.md` |
-| Local suite | `uv run pytest -W error` — **253 passed**, of which 156 are new. |
+| Local suite | `uv run pytest -W error` — **255 passed**, of which 158 are new. |
 | Post-merge CI | Pending. |
 | Acceptance decision | Pending CI evidence. |
 
@@ -24,7 +24,7 @@ The gate was run on 2026-08-01 against the working tree.
 - `uv lock --check`, `uv sync --locked --all-groups`, `ruff format --check`,
   `ruff check`, and strict `mypy` completed successfully across 48 source
   files.
-- `uv run pytest -W error` completed with **253 passed**. That includes:
+- `uv run pytest -W error` completed with **255 passed**. That includes:
   - registry tests covering enrollment issuance, expiry, replay, revocation,
     scope mismatch, declaration narrowing, heartbeat expiry, session
     replacement, the dispatch admission matrix, freeze idempotence, monotonic
@@ -125,8 +125,9 @@ integration, no live infrastructure, and no external-effect API.
 
 A five-dimension adversarial review (authorization, asyncio correctness,
 protocol state machine, Temporal ownership, and documented-claim accuracy) was
-run against this slice with independent reproduction scripts. It raised
-sixteen findings. All were addressed:
+run against this slice with independent reproduction scripts. Its verification pass then had independent skeptics attempt to refute every
+finding. Twenty-nine were raised and twelve survived refutation; the rest were
+addressed anyway where they were cheap and correct to fix. All are closed:
 
 | Finding | Resolution |
 | --- | --- |
@@ -146,6 +147,13 @@ sixteen findings. All were addressed:
 | Tautological node-proof test | Replaced with one that breaks verification on every bound field |
 | Inspection secrecy test asserted against an injected fake probe | A second test exercises the real probe |
 | Cancel API test named a behaviour it did not assert | Renamed to what it asserts, with a pointer to the test that covers the rest |
+| A handshake that died after attach but before the ready frame left a phantom "online" node with no session | The handshake now tears down on any failure, not only on a typed refusal or a timeout |
+| The shipped agent rebuilt itself on every reconnect, discarding the dedupe ledger that replay depends on | One agent for the process lifetime; its outbox is drained per connection |
+
+Both of those last two ship with regression tests verified to fail without
+their fix. The in-memory test channel was also corrected: sending to a closed
+peer now raises as a real socket does, because the previous fake could not
+express the failure the phantom-node defect depended on.
 
 ## Known limitations recorded rather than hidden
 
