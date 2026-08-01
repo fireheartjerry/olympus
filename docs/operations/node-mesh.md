@@ -125,8 +125,14 @@ Relevant `.env` variables (`GatewaySettings`, env prefix `OLYMPUS_`):
 | `OLYMPUS_NODE_ENROLLMENT_TTL_SECONDS` | Default enrollment-token lifetime. Defaults `900`, bounded to `[60, 3600]`. |
 | `OLYMPUS_NODE_CONTROL_PLANE_KEY_ID` | Identifier the control plane presents for its signing key. Defaults `olympus-control-plane-v1`. |
 | `OLYMPUS_NODE_CONTROL_PLANE_PRIVATE_KEY` | The control plane's Ed25519 private key, base64url-encoded. |
-
 | `OLYMPUS_NODE_MESH_ENABLED` | Must be `true` to run the mesh runtime. Defaults to `false`. |
+| `OLYMPUS_NODE_ATTACH_CONTROL_PLANE_HOST` | Enroll the VPS itself as an execution node granted only `system.inspect@1`. Defaults to `true`. |
+| `OLYMPUS_NODE_CONTROL_PLANE_HOST_NAME` | Display name for that self node. Defaults to `vps-primary`. |
+
+The control-plane host enrolls itself through the same token flow over an
+in-process channel (`attach_local_node` in `src/olympus/nodes/local_node.py`),
+so "inspect the VPS" and "inspect my PC" are the same operation. It is granted
+only `system.inspect@1`.
 
 `build_edge_app` refuses to start when `OLYMPUS_NODE_MESH_ENABLED` is not set,
 because that entrypoint exists only to serve the mesh. Run

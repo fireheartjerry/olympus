@@ -24,6 +24,10 @@ class GatewaySettings(BaseSettings):
     node_enrollment_ttl_seconds: int = Field(default=900, ge=60, le=3600)
     node_control_plane_key_id: str = "olympus-control-plane-v1"
     node_control_plane_private_key: SecretStr | None = None
+    # The control-plane host is itself an execution node, enrolled through the
+    # same flow and granted only the bounded read-only inspection capability.
+    node_attach_control_plane_host: bool = True
+    node_control_plane_host_name: str = "vps-primary"
 
     @field_validator("dev_command_token")
     @classmethod

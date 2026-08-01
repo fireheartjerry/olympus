@@ -16,6 +16,7 @@ from olympus.nodes.audit import NodeAuditLog
 from olympus.nodes.crypto import generate_node_keypair, public_key_of
 from olympus.nodes.dispatch import NodeDispatchService, NodeJobRequest
 from olympus.nodes.errors import NodeMeshError, NodeReason
+from olympus.nodes.local_node import LocalNodeHandle, attach_local_node
 from olympus.nodes.registry import NodeRegistry
 from olympus.workflows.command import CommandWorkflow
 from olympus.workflows.node_job import NODE_JOB_WORKFLOW_EXECUTION_TIMEOUT, NodeJobWorkflow
@@ -148,10 +149,22 @@ async def run() -> None:
         )
     )
     sweeper = asyncio.create_task(sweep_heartbeats_forever(runtime.registry))
+    local_node: LocalNodeHandle | None = None
     try:
         async with command_worker, edge_worker:
+            if settings.node_attach_control_plane_host:
+                local_node = await attach_local_node(
+                    registry=runtime.registry,
+                    dispatch=runtime.dispatch,
+                    control_plane_private_key=runtime.control_plane_private_key,
+                    control_plane_public_key=runtime.control_plane_public_key,
+                    control_plane_key_id=runtime.control_plane_key_id,
+                    node_name=settings.node_control_plane_host_name,
+                )
             await server.serve()
     finally:
+        if local_node is not None:
+            await local_node.aclose()
         sweeper.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await sweeper
