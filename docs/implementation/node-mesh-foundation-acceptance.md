@@ -13,7 +13,7 @@ integration was created or mutated to produce this evidence.
 | Parent amendment | Section 23.1 of `2026-07-28-agentic-vps-god-agent-design.md` |
 | Roadmap slice | Slice 1N in `2026-07-29-olympus-implementation-roadmap-design.md` |
 | Operator runbook | `docs/operations/node-mesh.md` |
-| Local suite | `uv run pytest -W error` — **238 passed**, of which 141 are new. |
+| Local suite | `uv run pytest -W error` — **239 passed**, of which 142 are new. |
 | Post-merge CI | Pending. |
 | Acceptance decision | Pending CI evidence. |
 
@@ -24,7 +24,7 @@ The gate was run on 2026-08-01 against the working tree.
 - `uv lock --check`, `uv sync --locked --all-groups`, `ruff format --check`,
   `ruff check`, and strict `mypy` completed successfully across 48 source
   files.
-- `uv run pytest -W error` completed with **238 passed**. That includes:
+- `uv run pytest -W error` completed with **239 passed**. That includes:
   - registry tests covering enrollment issuance, expiry, replay, revocation,
     scope mismatch, declaration narrowing, heartbeat expiry, session
     replacement, the dispatch admission matrix, freeze idempotence, monotonic
