@@ -101,6 +101,22 @@ SYSTEM_INSPECT = _descriptor(
     max_output_bytes=16_384,
 )
 
+FILE_READ = _descriptor(
+    "fs.read",
+    1,
+    "Bounded file read",
+    "Read one regular file from a directory this node was explicitly granted. "
+    "The grant carries the allowed roots and a byte ceiling; symbolic links are "
+    "refused rather than followed, and devices, directories, sockets, and FIFOs "
+    "are not files for this purpose. Reads nothing the grant does not name.",
+    CapabilityStatus.ENABLED,
+    CapabilityRisk.OBSERVE,
+    mutating=False,
+    requires_approval=False,
+    max_runtime_seconds=30,
+    max_output_bytes=1_048_576,
+)
+
 _RESERVED = (
     _descriptor(
         "shell.powershell",
@@ -111,16 +127,6 @@ _RESERVED = (
         CapabilityRisk.PRIVILEGED,
         mutating=True,
         requires_approval=True,
-    ),
-    _descriptor(
-        "fs.read",
-        1,
-        "Bounded file read",
-        "Reserved for the node file-access slice. Not dispatchable.",
-        CapabilityStatus.RESERVED,
-        CapabilityRisk.OBSERVE,
-        mutating=False,
-        requires_approval=False,
     ),
     _descriptor(
         "fs.write",
@@ -186,7 +192,7 @@ _RESERVED = (
 )
 
 CAPABILITY_CATALOG: Mapping[str, CapabilityDescriptor] = MappingProxyType(
-    {descriptor.name: descriptor for descriptor in (SYSTEM_INSPECT, *_RESERVED)}
+    {descriptor.name: descriptor for descriptor in (SYSTEM_INSPECT, FILE_READ, *_RESERVED)}
 )
 
 ENABLED_CAPABILITIES: tuple[str, ...] = tuple(

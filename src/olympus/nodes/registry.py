@@ -2,6 +2,7 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
+from typing import Any
 
 from olympus.nodes.audit import (
     AuditAction,
@@ -37,6 +38,13 @@ from olympus.nodes.models import (
 from olympus.nodes.protocol import (
     DEFAULT_HEARTBEAT_EXPIRY_SECONDS,
     DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+)
+from olympus.nodes.scopes import (
+    FILE_READ,
+    FileReadScope,
+    assert_scoped_dispatch,
+    parse_scopes,
+    requires_scope,
 )
 from olympus.nodes.store import InMemoryNodeMeshStore, NodeMeshStore, NodeMeshTransaction
 
@@ -157,6 +165,7 @@ class NodeRegistry:
         granted_capabilities: Sequence[str],
         issued_by: str,
         ttl_seconds: int | None = None,
+        capability_scopes: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> IssuedEnrollment:
         """Mint one single-use enrollment token bound to a node name and grant."""
         if not node_name.strip():
@@ -171,6 +180,18 @@ class NodeRegistry:
         for name in grants:
             require_dispatchable_capability(name)
 
+        # Validate scopes at mint time, not at dispatch time. A malformed scope
+        # discovered when the operator is trying to run a job is a scope that
+        # already shipped; discovered here, it is a refused token.
+        scopes = _encode_scopes(capability_scopes or {}, platform=platform)
+        for name in grants:
+            if requires_scope(name) and name not in dict(scopes):
+                raise NodeMeshError(
+                    NodeReason.CAPABILITY_NOT_GRANTED,
+                    f"{name} cannot be granted without a scope; "
+                    "an unscoped grant of this capability would be unbounded",
+                )
+
         issued_at = self._clock()
         secret = new_enrollment_secret()
         record = EnrollmentTokenRecord(
@@ -183,6 +204,7 @@ class NodeRegistry:
             issued_at=issued_at,
             expires_at=issued_at + timedelta(seconds=ttl),
             issued_by=issued_by,
+            capability_scopes=scopes,
         )
         async with self._store.transaction() as tx:
             control = await tx.get_dispatch_control()
@@ -298,6 +320,7 @@ class NodeRegistry:
                         labels=description.labels,
                         enrolled_at=now,
                         enrollment_token_id=record.token_id,
+                        capability_scopes=record.capability_scopes,
                     )
                     await tx.put_node(node)
                     await tx.put_enrollment_token(
@@ -745,8 +768,14 @@ class NodeRegistry:
             self.view_of(record, now) for record in sorted(records, key=lambda item: item.node_name)
         )
 
-    async def assert_dispatchable(self, *, node_id: str, capability: str) -> NodeRecord:
-        """Refuse dispatch unless the mesh, the node, and the grant all permit it."""
+    async def assert_dispatchable(
+        self,
+        *,
+        node_id: str,
+        capability: str,
+        parameters: Mapping[str, Any] | None = None,
+    ) -> NodeRecord:
+        """Refuse dispatch unless the mesh, the node, the grant, and the scope permit it."""
         require_dispatchable_capability(capability)
         async with self._store.transaction() as tx:
             control = await tx.get_dispatch_control()
@@ -765,14 +794,35 @@ class NodeRegistry:
             raise NodeMeshError(NodeReason.CAPABILITY_NOT_GRANTED, "capability is not granted")
         if capability not in record.declared_capabilities:
             raise NodeMeshError(NodeReason.CAPABILITY_NOT_DECLARED, "capability is not declared")
+        # The scope check comes before the liveness check on purpose: an
+        # out-of-scope request is refused identically whether the node happens
+        # to be online, so a caller cannot use timing or error codes to probe
+        # which paths a node would have accepted.
+        assert_scoped_dispatch(
+            capability=capability,
+            scopes=self.scopes_of(record),
+            parameters=parameters or {},
+        )
         if state is not NodeState.ONLINE:
             raise NodeMeshError(NodeReason.NODE_OFFLINE, "node is not online")
         return record
 
-    async def select_node(self, *, capability: str, node_id: str | None = None) -> NodeRecord:
+    def scopes_of(self, record: NodeRecord) -> dict[str, FileReadScope]:
+        """Typed scopes for one node, parsed against that node's own platform."""
+        return parse_scopes(_decode_scopes(record.capability_scopes), platform=record.platform)
+
+    async def select_node(
+        self,
+        *,
+        capability: str,
+        node_id: str | None = None,
+        parameters: Mapping[str, Any] | None = None,
+    ) -> NodeRecord:
         """Pick the eligible node for a capability, preferring the least loaded."""
         if node_id is not None:
-            return await self.assert_dispatchable(node_id=node_id, capability=capability)
+            return await self.assert_dispatchable(
+                node_id=node_id, capability=capability, parameters=parameters
+            )
         require_dispatchable_capability(capability)
         async with self._store.transaction() as tx:
             control = await tx.get_dispatch_control()
@@ -790,6 +840,29 @@ class NodeRegistry:
             raise NodeMeshError(
                 NodeReason.DISPATCH_NO_ELIGIBLE_NODE, "no online node offers this capability"
             )
+        # Scope is part of eligibility, not a later check. A node granted a
+        # different directory cannot serve this request at all, so selecting it
+        # and refusing afterwards would report "no capacity" for what is really
+        # "not granted" -- and on a mesh with several nodes it would pick the
+        # wrong one while a correctly scoped node sat idle.
+        if requires_scope(capability):
+            scoped: list[NodeRecord] = []
+            for record in eligible:
+                try:
+                    assert_scoped_dispatch(
+                        capability=capability,
+                        scopes=self.scopes_of(record),
+                        parameters=parameters or {},
+                    )
+                except NodeMeshError:
+                    continue
+                scoped.append(record)
+            if not scoped:
+                raise NodeMeshError(
+                    NodeReason.CAPABILITY_NOT_GRANTED,
+                    "no online node is granted this capability for the requested parameters",
+                )
+            eligible = scoped
         eligible.sort(key=lambda record: (_active_jobs(record), record.node_id))
         return eligible[0]
 
@@ -813,3 +886,36 @@ def _is_dispatchable(name: str) -> bool:
 def labels_from_mapping(labels: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
     """Normalize a label mapping into the deterministic tuple form records store."""
     return tuple(sorted((str(key), str(value)) for key, value in labels.items()))
+
+
+def _encode_scopes(
+    scopes: Mapping[str, Mapping[str, Any]], *, platform: NodePlatform
+) -> tuple[tuple[str, str], ...]:
+    """Validate and freeze scopes into the canonical form the record stores.
+
+    Stored as sorted (capability, canonical JSON) pairs so the record hashes and
+    compares deterministically, and so a scope cannot smuggle key ordering into
+    anything downstream that signs or digests it.
+    """
+    import json
+
+    encoded: list[tuple[str, str]] = []
+    for capability, payload in scopes.items():
+        if capability == FILE_READ:
+            # Round-tripped through the typed scope so a malformed root, an
+            # over-large ceiling, or "/" is rejected here rather than stored.
+            scope = FileReadScope.from_mapping(payload, platform=platform)
+            body = scope.to_mapping()
+        else:
+            raise NodeMeshError(
+                NodeReason.CAPABILITY_NOT_GRANTED,
+                f"{capability} has no scope schema; refusing to store one it cannot enforce",
+            )
+        encoded.append((capability, json.dumps(body, sort_keys=True, separators=(",", ":"))))
+    return tuple(sorted(encoded))
+
+
+def _decode_scopes(pairs: tuple[tuple[str, str], ...]) -> dict[str, Any]:
+    import json
+
+    return {capability: json.loads(body) for capability, body in pairs}

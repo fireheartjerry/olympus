@@ -13,7 +13,9 @@ from olympus.nodes.audit import (
 from olympus.nodes.capabilities import (
     CAPABILITY_CATALOG,
     ENABLED_CAPABILITIES,
+    FILE_READ,
     SYSTEM_INSPECT,
+    CapabilityRisk,
     CapabilityStatus,
     describe_capability,
     normalize_capability_names,
@@ -45,9 +47,34 @@ from olympus.nodes.protocol import (
 from olympus.nodes.redaction import REDACTION_PLACEHOLDER, bound_text, redact_text, redact_value
 
 
-def test_only_system_inspection_is_dispatchable_today() -> None:
-    assert ENABLED_CAPABILITIES == (SYSTEM_INSPECT.name,)
+def test_only_bounded_read_only_capabilities_are_dispatchable_today() -> None:
+    """Inspection and scoped file read. Nothing that changes a node.
+
+    The list is asserted exactly rather than by membership, so enabling a
+    capability is a deliberate edit to this test and not a silent side effect
+    of adding a catalog entry.
+    """
+    assert ENABLED_CAPABILITIES == (FILE_READ.name, SYSTEM_INSPECT.name)
     assert require_dispatchable_capability(SYSTEM_INSPECT.name) is SYSTEM_INSPECT
+    assert require_dispatchable_capability(FILE_READ.name) is FILE_READ
+
+
+def test_nothing_dispatchable_can_mutate_a_node() -> None:
+    """The invariant that actually matters, independent of the list above.
+
+    Every enabled capability observes. The moment one of them can change a
+    node, that is a different slice with a different gate, and this fails.
+    """
+    for name in ENABLED_CAPABILITIES:
+        descriptor = CAPABILITY_CATALOG[name]
+        assert descriptor.mutating is False, f"{name} mutates but is enabled"
+        assert descriptor.risk is CapabilityRisk.OBSERVE, f"{name} is enabled above OBSERVE"
+
+
+def test_every_mutating_capability_is_still_reserved() -> None:
+    for name, descriptor in CAPABILITY_CATALOG.items():
+        if descriptor.mutating:
+            assert descriptor.status is CapabilityStatus.RESERVED, f"{name} is mutating and enabled"
 
 
 RESERVED_NAMES = [

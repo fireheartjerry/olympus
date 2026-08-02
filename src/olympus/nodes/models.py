@@ -114,6 +114,10 @@ class EnrollmentTokenRecord:
     issued_at: datetime
     expires_at: datetime
     issued_by: str
+    # Scopes bound to this grant at mint time. A capability whose name alone
+    # would authorize too much (fs.read) is refused at dispatch when its scope
+    # is missing, so an empty mapping never widens anything.
+    capability_scopes: tuple[tuple[str, str], ...] = ()
     consumed_at: datetime | None = None
     consumed_by_node_id: str | None = None
     revoked_at: datetime | None = None
@@ -151,6 +155,9 @@ class NodeRecord:
     granted_capabilities: tuple[str, ...]
     enrolled_at: datetime
     enrollment_token_id: str
+    # Carried verbatim from the enrollment token. A node declares capabilities;
+    # it never states or widens their scope.
+    capability_scopes: tuple[tuple[str, str], ...] = ()
     declared_capabilities: tuple[str, ...] = ()
     labels: tuple[tuple[str, str], ...] = ()
     session_id: str | None = None

@@ -8,6 +8,7 @@ from olympus.nodes.crypto import generate_node_keypair
 from olympus.nodes.errors import NodeMeshError, NodeReason
 from olympus.nodes.models import NodeHealthSnapshot, NodeKind, NodePlatform, NodeState
 from olympus.nodes.registry import NodeDescription, NodeRegistry
+from olympus.nodes.store import InMemoryNodeMeshStore
 
 RESERVED_CAPABILITY = "shell.powershell@1"
 UNKNOWN_CAPABILITY = "does.not@9"
@@ -433,3 +434,177 @@ async def test_revocation_is_irreversible() -> None:
             architecture="AMD64",
         )
     assert attach_failure.value.reason is NodeReason.NODE_REVOKED
+
+
+# --- scoped grants ---------------------------------------------------------------
+
+FILE_READ_NAME = "fs.read@1"
+WINDOWS_SCOPE = {FILE_READ_NAME: {"roots": ["C:\\olympus\\share"], "max_bytes": 4096}}
+
+
+async def enroll_with_file_read(registry: NodeRegistry, scopes=None) -> str:
+    issued = await registry.issue_enrollment_token(
+        node_name="jerry-windows",
+        kind=NodeKind.WORKSTATION,
+        platform=NodePlatform.WINDOWS,
+        granted_capabilities=[SYSTEM_INSPECT.name, FILE_READ_NAME],
+        issued_by="local-jerry",
+        capability_scopes=WINDOWS_SCOPE if scopes is None else scopes,
+    )
+    keys = generate_node_keypair()
+    record = await registry.redeem_enrollment_token(
+        presented=issued.presented,
+        description=description(capabilities=(SYSTEM_INSPECT.name, FILE_READ_NAME)),
+        public_key=keys.public_key,
+    )
+    return record.node_id
+
+
+async def online(registry: NodeRegistry, node_id: str) -> None:
+    """Bring a node to ONLINE so dispatch reaches the scope check."""
+    await registry.attach_session(
+        node_id=node_id,
+        session_id="nsx-scope",
+        declared_capabilities=[SYSTEM_INSPECT.name, FILE_READ_NAME],
+        agent_version="0.1.0",
+        architecture="AMD64",
+    )
+
+
+async def test_a_scope_cannot_be_granted_by_the_node_only_by_the_token() -> None:
+    """A node declares what it can run. It never says what it may touch."""
+    clock = Clock()
+    registry = build_registry(clock)
+    node_id = await enroll_with_file_read(registry)
+
+    record = await registry.get_node(node_id)
+    assert record is not None
+    scopes = registry.scopes_of(record)
+    assert scopes[FILE_READ_NAME].roots == ("C:\\olympus\\share",)
+
+
+async def test_file_read_cannot_be_granted_without_a_scope() -> None:
+    """Refused at mint time, not discovered at dispatch time.
+
+    A malformed or missing scope found when the operator is trying to run a job
+    is a scope that already shipped.
+    """
+    registry = build_registry(Clock())
+    with pytest.raises(NodeMeshError) as caught:
+        await registry.issue_enrollment_token(
+            node_name="jerry-windows",
+            kind=NodeKind.WORKSTATION,
+            platform=NodePlatform.WINDOWS,
+            granted_capabilities=[FILE_READ_NAME],
+            issued_by="local-jerry",
+        )
+    assert caught.value.reason is NodeReason.CAPABILITY_NOT_GRANTED
+
+
+async def test_a_scope_naming_the_whole_disk_is_refused_at_mint_time() -> None:
+    registry = build_registry(Clock())
+    with pytest.raises(NodeMeshError):
+        await registry.issue_enrollment_token(
+            node_name="jerry-windows",
+            kind=NodeKind.WORKSTATION,
+            platform=NodePlatform.WINDOWS,
+            granted_capabilities=[FILE_READ_NAME],
+            issued_by="local-jerry",
+            capability_scopes={FILE_READ_NAME: {"roots": ["C:\\"]}},
+        )
+
+
+async def test_dispatch_inside_the_scope_is_admitted() -> None:
+    clock = Clock()
+    registry = build_registry(clock)
+    node_id = await enroll_with_file_read(registry)
+    await online(registry, node_id)
+
+    record = await registry.assert_dispatchable(
+        node_id=node_id,
+        capability=FILE_READ_NAME,
+        parameters={"path": "C:\\olympus\\share\\report.txt"},
+    )
+    assert record.node_id == node_id
+
+
+async def test_dispatch_outside_the_scope_is_refused() -> None:
+    clock = Clock()
+    registry = build_registry(clock)
+    node_id = await enroll_with_file_read(registry)
+    await online(registry, node_id)
+
+    with pytest.raises(NodeMeshError) as caught:
+        await registry.assert_dispatchable(
+            node_id=node_id,
+            capability=FILE_READ_NAME,
+            parameters={"path": "C:\\Windows\\System32\\config\\SAM"},
+        )
+    assert caught.value.reason is NodeReason.CAPABILITY_NOT_GRANTED
+
+
+async def test_traversal_out_of_the_scope_is_refused_at_the_control_plane() -> None:
+    clock = Clock()
+    registry = build_registry(clock)
+    node_id = await enroll_with_file_read(registry)
+    await online(registry, node_id)
+
+    with pytest.raises(NodeMeshError):
+        await registry.assert_dispatchable(
+            node_id=node_id,
+            capability=FILE_READ_NAME,
+            parameters={"path": "C:\\olympus\\share\\..\\..\\Windows\\win.ini"},
+        )
+
+
+async def test_an_unscoped_dispatch_of_a_scoped_capability_is_refused() -> None:
+    # No path at all must not read as "no constraint violated".
+    clock = Clock()
+    registry = build_registry(clock)
+    node_id = await enroll_with_file_read(registry)
+    await online(registry, node_id)
+
+    with pytest.raises(NodeMeshError):
+        await registry.assert_dispatchable(node_id=node_id, capability=FILE_READ_NAME)
+
+
+async def test_scope_survives_a_store_rebuild() -> None:
+    """The grant is only real if it outlives the process holding it."""
+    clock = Clock()
+    store = InMemoryNodeMeshStore(clock=clock)
+    registry = NodeRegistry(
+        clock=clock, heartbeat_interval_seconds=5, heartbeat_expiry_seconds=15, store=store
+    )
+    node_id = await enroll_with_file_read(registry)
+
+    # A second registry over the same store is what a restart looks like.
+    rebuilt = NodeRegistry(
+        clock=clock, heartbeat_interval_seconds=5, heartbeat_expiry_seconds=15, store=store
+    )
+    record = await rebuilt.get_node(node_id)
+    assert record is not None
+    assert rebuilt.scopes_of(record)[FILE_READ_NAME].roots == ("C:\\olympus\\share",)
+
+
+async def test_selection_skips_nodes_whose_scope_excludes_the_request() -> None:
+    """Scope is eligibility, not an afterthought.
+
+    Choosing a node first and refusing afterwards would report "no capacity"
+    for what is really "not granted", and would pass over a node that could
+    have served the request.
+    """
+    clock = Clock()
+    registry = build_registry(clock)
+    node_id = await enroll_with_file_read(registry)
+    await online(registry, node_id)
+
+    with pytest.raises(NodeMeshError) as caught:
+        await registry.select_node(
+            capability=FILE_READ_NAME, parameters={"path": "C:\\Windows\\win.ini"}
+        )
+    assert caught.value.reason is NodeReason.CAPABILITY_NOT_GRANTED
+
+    chosen = await registry.select_node(
+        capability=FILE_READ_NAME, parameters={"path": "C:\\olympus\\share\\a.txt"}
+    )
+    assert chosen.node_id == node_id

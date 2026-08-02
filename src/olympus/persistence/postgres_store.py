@@ -36,6 +36,31 @@ from olympus.persistence.migrator import apply_migrations
 AUDIT_LOCK_KEY: Final[int] = 0x0147_4D50_5553_0002
 
 
+def _scopes_to_json(scopes: tuple[tuple[str, str], ...]) -> Jsonb:
+    """Store scopes as a JSON object keyed by capability.
+
+    The record holds canonical JSON *text* per capability so the tuple stays
+    hashable and deterministic; it is expanded into real JSON here so the
+    column is queryable rather than an opaque string.
+    """
+    import json
+
+    return Jsonb({capability: json.loads(body) for capability, body in scopes})
+
+
+def _scopes_from_json(value: Any) -> tuple[tuple[str, str], ...]:
+    if not value:
+        return ()
+    import json
+
+    return tuple(
+        sorted(
+            (capability, json.dumps(body, sort_keys=True, separators=(",", ":")))
+            for capability, body in dict(value).items()
+        )
+    )
+
+
 def _labels_to_json(labels: tuple[tuple[str, str], ...]) -> Jsonb:
     return Jsonb([[key, value] for key, value in labels])
 
@@ -70,6 +95,7 @@ def _token_from_row(row: Mapping[str, Any]) -> EnrollmentTokenRecord:
         kind=NodeKind(row["kind"]),
         platform=NodePlatform(row["platform"]),
         granted_capabilities=tuple(row["granted_capabilities"]),
+        capability_scopes=_scopes_from_json(row.get("capability_scopes")),
         issued_at=row["issued_at"],
         expires_at=row["expires_at"],
         issued_by=row["issued_by"],
@@ -89,6 +115,7 @@ def _node_from_row(row: Mapping[str, Any]) -> NodeRecord:
         agent_version=row["agent_version"],
         public_key=row["public_key"],
         granted_capabilities=tuple(row["granted_capabilities"]),
+        capability_scopes=_scopes_from_json(row.get("capability_scopes")),
         declared_capabilities=tuple(row["declared_capabilities"]),
         labels=_labels_from_json(row["labels"]),
         enrolled_at=row["enrolled_at"],
@@ -181,9 +208,9 @@ class PostgresNodeMeshTransaction:
             """
             INSERT INTO enrollment_tokens (
                 token_id, secret_hash, node_name, kind, platform,
-                granted_capabilities, issued_at, expires_at, issued_by,
+                granted_capabilities, capability_scopes, issued_at, expires_at, issued_by,
                 consumed_at, consumed_by_node_id, revoked_at
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (token_id) DO UPDATE SET
                 consumed_at = EXCLUDED.consumed_at,
                 consumed_by_node_id = EXCLUDED.consumed_by_node_id,
@@ -196,6 +223,7 @@ class PostgresNodeMeshTransaction:
                 record.kind.value,
                 record.platform.value,
                 list(record.granted_capabilities),
+                _scopes_to_json(record.capability_scopes),
                 record.issued_at,
                 record.expires_at,
                 record.issued_by,
@@ -223,8 +251,8 @@ class PostgresNodeMeshTransaction:
                 public_key, granted_capabilities, declared_capabilities, labels,
                 enrolled_at, enrollment_token_id, session_id, session_started_at,
                 last_heartbeat_at, last_health, quarantined_at, quarantine_reason,
-                revoked_at, revocation_reason
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                revoked_at, revocation_reason, capability_scopes
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (node_id) DO UPDATE SET
                 node_name = EXCLUDED.node_name,
                 architecture = EXCLUDED.architecture,
@@ -239,7 +267,8 @@ class PostgresNodeMeshTransaction:
                 quarantined_at = EXCLUDED.quarantined_at,
                 quarantine_reason = EXCLUDED.quarantine_reason,
                 revoked_at = EXCLUDED.revoked_at,
-                revocation_reason = EXCLUDED.revocation_reason
+                revocation_reason = EXCLUDED.revocation_reason,
+                capability_scopes = EXCLUDED.capability_scopes
             """,
             (
                 record.node_id,
@@ -262,6 +291,7 @@ class PostgresNodeMeshTransaction:
                 record.quarantine_reason,
                 record.revoked_at,
                 record.revocation_reason,
+                _scopes_to_json(record.capability_scopes),
             ),
         )
 
