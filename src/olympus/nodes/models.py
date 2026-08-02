@@ -202,6 +202,9 @@ class NodeView:
     labels: tuple[tuple[str, str], ...]
     health: NodeHealthSnapshot | None
     output_trust_label: TrustLabel = TrustLabel.EXTERNAL_UNTRUSTED
+    # What each granted capability is bounded to, so an operator auditing a
+    # node sees the bound and not just the capability name.
+    capability_scopes: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

@@ -83,6 +83,11 @@ class IssueEnrollmentRequest(_Payload):
     kind: NodeKind = NodeKind.WORKSTATION
     platform: NodePlatform = NodePlatform.WINDOWS
     capabilities: tuple[Name, ...] = Field(min_length=1, max_length=32)
+    # The bounds attached to those capabilities. Without this the scoped
+    # capabilities are enabled, wired, and ungrantable: every one of them
+    # refuses a grant that carries no scope, so the operator surface could
+    # express only the capability that happens to need none.
+    capability_scopes: dict[Name, dict[str, Any]] = Field(default_factory=dict)
     ttl_seconds: int | None = Field(default=None, ge=60, le=3600)
 
 
@@ -93,6 +98,10 @@ class IssuedEnrollmentResponse(_Payload):
     kind: NodeKind
     platform: NodePlatform
     granted_capabilities: tuple[str, ...]
+    # Echoed back so an operator confirms what they granted rather than what
+    # they meant to grant. A scope that was silently normalized, clamped, or
+    # dropped is worth seeing before the token is used.
+    capability_scopes: dict[str, dict[str, Any]] = Field(default_factory=dict)
     expires_at: datetime
     protocol: str = PROTOCOL_ID
 
@@ -140,6 +149,7 @@ class NodeResponse(_Payload):
     state: str
     connected: bool
     granted_capabilities: tuple[str, ...]
+    capability_scopes: dict[str, dict[str, Any]] = Field(default_factory=dict)
     declared_capabilities: tuple[str, ...]
     effective_capabilities: tuple[str, ...]
     enrolled_at: datetime
@@ -161,6 +171,7 @@ class NodeResponse(_Payload):
             state=view.state.value,
             connected=view.connected,
             granted_capabilities=view.granted_capabilities,
+            capability_scopes=_decode_scopes(view.capability_scopes),
             declared_capabilities=view.declared_capabilities,
             effective_capabilities=view.effective_capabilities,
             enrolled_at=view.enrolled_at,
@@ -384,6 +395,18 @@ class WebSocketServerChannel:
             return
 
 
+def _decode_scopes(pairs: tuple[tuple[str, str], ...]) -> dict[str, dict[str, Any]]:
+    """Render stored scopes for an operator to read.
+
+    Stored as canonical JSON text per capability so records stay hashable and
+    deterministic; expanded here because an operator auditing a grant should
+    see the bound, not a quoted string containing it.
+    """
+    import json as _json
+
+    return {capability: _json.loads(body) for capability, body in pairs}
+
+
 def _refuse(exc: NodeMeshError) -> HTTPException:
     """Map a typed refusal to a status code, exposing only the stable reason code."""
     return HTTPException(
@@ -433,6 +456,7 @@ def register_node_routes(
                 kind=request.kind,
                 platform=request.platform,
                 granted_capabilities=request.capabilities,
+                capability_scopes=request.capability_scopes,
                 issued_by=authority.commander_id,
                 ttl_seconds=request.ttl_seconds or settings.node_enrollment_ttl_seconds,
             )
@@ -445,6 +469,7 @@ def register_node_routes(
             kind=issued.kind,
             platform=issued.platform,
             granted_capabilities=issued.granted_capabilities,
+            capability_scopes=_decode_scopes(issued.capability_scopes),
             expires_at=issued.expires_at,
         )
 

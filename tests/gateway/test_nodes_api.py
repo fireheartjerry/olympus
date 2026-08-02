@@ -380,3 +380,77 @@ def test_the_command_path_still_works_without_a_node_mesh() -> None:
     client = TestClient(create_app(settings, FakeCommandStarter()))
     assert client.get("/health/live").status_code == 200
     assert client.get("/v1/nodes", headers=HEADERS).status_code == 404
+
+
+# --- scoped capabilities must be grantable through the operator surface -------------
+
+
+def test_a_scoped_capability_can_be_granted_through_the_api() -> None:
+    client, _runtime, _starter = build_client()
+    """Without this the scoped capabilities were ungrantable.
+
+    Every one of them refuses a grant carrying no scope, so an enrollment
+    request with no scope field could express only the single capability that
+    happens to need none.
+    """
+    body = issue(
+        client,
+        capabilities=[SYSTEM_INSPECT.name, "fs.read@1"],
+        capability_scopes={"fs.read@1": {"roots": ["C:\\olympus\\share"], "max_bytes": 4096}},
+    )
+
+    assert "fs.read@1" in body["granted_capabilities"]
+    # Echoed back so the operator sees the bound that was stored, not the one
+    # they typed: normalization and clamping happen at mint time.
+    assert body["capability_scopes"]["fs.read@1"]["roots"] == ["C:\\olympus\\share"]
+    assert body["capability_scopes"]["fs.read@1"]["max_bytes"] == 4096
+
+
+def test_granting_a_scoped_capability_without_a_scope_is_refused() -> None:
+    client, _runtime, _starter = build_client()
+    response = client.post(
+        "/v1/nodes/enrollments",
+        json={
+            "node_name": "jerry-windows",
+            "kind": "workstation",
+            "platform": "windows",
+            "capabilities": ["fs.read@1"],
+        },
+        headers=HEADERS,
+    )
+
+    assert response.status_code >= 400
+    assert "fs.read@1" not in response.text or "scope" in response.text.lower()
+
+
+def test_a_scope_naming_the_whole_disk_is_refused_by_the_api() -> None:
+    client, _runtime, _starter = build_client()
+    response = client.post(
+        "/v1/nodes/enrollments",
+        json={
+            "node_name": "jerry-windows",
+            "kind": "workstation",
+            "platform": "windows",
+            "capabilities": ["fs.read@1"],
+            "capability_scopes": {"fs.read@1": {"roots": ["C:\\"]}},
+        },
+        headers=HEADERS,
+    )
+
+    assert response.status_code >= 400
+
+
+def test_the_node_list_shows_what_each_grant_is_bounded_to() -> None:
+    client, _runtime, _starter = build_client()
+    # An operator auditing a node should see the bound, not just the name.
+    keys = generate_node_keypair()
+    issued = issue(
+        client,
+        capabilities=[SYSTEM_INSPECT.name, "fs.read@1"],
+        capability_scopes={"fs.read@1": {"roots": ["C:\\olympus\\share"], "max_bytes": 2048}},
+    )
+    enroll(client, issued["enrollment_token"], keys.public_key)
+
+    nodes = client.get("/v1/nodes", headers=HEADERS).json()["nodes"]
+
+    assert nodes[0]["capability_scopes"]["fs.read@1"]["roots"] == ["C:\\olympus\\share"]

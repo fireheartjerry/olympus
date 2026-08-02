@@ -100,6 +100,9 @@ class IssuedEnrollment:
     granted_capabilities: tuple[str, ...]
     issued_at: datetime
     expires_at: datetime
+    # Returned so the operator can confirm the bound that was actually stored,
+    # not the one they typed. Normalization and clamping happen at mint time.
+    capability_scopes: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -257,6 +260,7 @@ class NodeRegistry:
             granted_capabilities=grants,
             issued_at=record.issued_at,
             expires_at=record.expires_at,
+            capability_scopes=record.capability_scopes,
         )
 
     async def revoke_enrollment_token(self, token_id: str, *, actor: str, reason: str = "") -> None:
@@ -761,6 +765,7 @@ class NodeRegistry:
             state=self.state_of(record, now),
             connected=record.connected,
             granted_capabilities=record.granted_capabilities,
+            capability_scopes=record.capability_scopes,
             declared_capabilities=record.declared_capabilities,
             effective_capabilities=self.effective_capabilities(record),
             enrolled_at=record.enrolled_at,
