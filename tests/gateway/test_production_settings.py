@@ -20,7 +20,10 @@ def valid_settings(**overrides: object) -> ProductionGatewaySettings:
         "emergency_latch_verification_key": SecretStr("b" * 64),
     }
     values.update(overrides)
-    return ProductionGatewaySettings(**values)  # type: ignore[arg-type]
+    # _env_file=None so these tests describe the settings class, not whatever
+    # .env.production happens to hold on the machine running them. Without it a
+    # deployed host's real configuration silently overrides the fixture.
+    return ProductionGatewaySettings(_env_file=None, **values)  # type: ignore[arg-type]
 
 
 def test_accepts_exact_single_commander_and_private_https_origin() -> None:
@@ -69,6 +72,7 @@ def test_explicit_tls_port_in_origin_is_not_part_of_the_rp_id() -> None:
     settings = valid_settings(
         webauthn_origin="https://vps-41e741fc.tail70f263.ts.net:9443",
         webauthn_rp_id="vps-41e741fc.tail70f263.ts.net",
+        http_port=9443,
     )
 
     assert str(settings.webauthn_origin).rstrip("/") == (
@@ -85,14 +89,76 @@ def test_port_bearing_origin_still_requires_the_rp_id_to_equal_the_hostname() ->
         valid_settings(
             webauthn_origin="https://vps-41e741fc.tail70f263.ts.net:9443",
             webauthn_rp_id="tail70f263.ts.net",
+            http_port=9443,
         )
     with pytest.raises(ValidationError):
         valid_settings(
             webauthn_origin="https://vps-41e741fc.tail70f263.ts.net:9443",
             webauthn_rp_id="vps-41e741fc.tail70f263.ts.net:9443",
+            http_port=9443,
         )
     with pytest.raises(ValidationError):
         valid_settings(
             webauthn_origin="http://vps-41e741fc.tail70f263.ts.net:9443",
             webauthn_rp_id="vps-41e741fc.tail70f263.ts.net",
+            http_port=9443,
         )
+
+
+def test_public_host_header_carries_the_port_but_the_rp_id_never_does() -> None:
+    settings = valid_settings(
+        webauthn_origin="https://vps-41e741fc.tail70f263.ts.net:9443",
+        webauthn_rp_id="vps-41e741fc.tail70f263.ts.net",
+        http_port=9443,
+    )
+
+    # These three are deliberately not the same string.
+    assert settings.public_host_header == "vps-41e741fc.tail70f263.ts.net:9443"
+    assert settings.webauthn_rp_id == "vps-41e741fc.tail70f263.ts.net"
+    assert str(settings.webauthn_origin).rstrip("/").endswith(":9443")
+
+
+def test_default_https_port_is_omitted_from_the_host_header() -> None:
+    settings = valid_settings(
+        webauthn_origin="https://olympus.tail-example.ts.net",
+        webauthn_rp_id="olympus.tail-example.ts.net",
+    )
+
+    assert settings.public_host_header == "olympus.tail-example.ts.net"
+
+
+def test_origin_port_must_match_the_port_actually_served() -> None:
+    # Otherwise every ceremony fails the origin check with nothing to say why.
+    with pytest.raises(ValidationError):
+        valid_settings(
+            webauthn_origin="https://olympus.tail-example.ts.net:9443",
+            webauthn_rp_id="olympus.tail-example.ts.net",
+            http_port=8443,
+        )
+
+
+@pytest.mark.parametrize("wildcard", ["0.0.0.0", "::", ""])  # noqa: S104 - asserting refusal
+def test_wildcard_bind_address_is_refused(wildcard: str) -> None:
+    # The enrollment page may only ever be reachable over the private tailnet.
+    with pytest.raises(ValidationError):
+        valid_settings(http_host=wildcard)
+
+
+def test_tls_certificate_and_key_must_be_supplied_together() -> None:
+    with pytest.raises(ValidationError):
+        valid_settings(tls_certificate_path=Path("/etc/olympus/tls.crt"))
+    with pytest.raises(ValidationError):
+        valid_settings(tls_private_key_path=Path("/etc/olympus/tls.key"))
+
+
+def test_tls_paths_must_be_absolute() -> None:
+    with pytest.raises(ValidationError):
+        valid_settings(
+            tls_certificate_path=Path("tls.crt"),
+            tls_private_key_path=Path("tls.key"),
+        )
+
+
+def test_bootstrap_enrollment_is_off_unless_explicitly_enabled() -> None:
+    assert valid_settings().bootstrap_enabled is False
+    assert valid_settings(bootstrap_enabled=True).bootstrap_enabled is True

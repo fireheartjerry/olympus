@@ -33,8 +33,35 @@ class ProductionGatewaySettings(BaseSettings):
     emergency_latch_verification_key: SecretStr
     temporal_address: str = "127.0.0.1:7233"
     temporal_task_queue: str = "olympus-command-v1"
+
+    # Olympus terminates its own TLS on a dedicated high port bound to a single
+    # address. It does not sit behind a shared reverse proxy: the production app
+    # rejects any request carrying X-Forwarded-* precisely so that no
+    # intermediary can assert an origin on the browser's behalf, and the
+    # WebAuthn boundary depends on that. A wildcard bind is refused because the
+    # only interface this may be reachable on is the private tailnet.
     http_host: str = "127.0.0.1"
     http_port: int = Field(default=8443, ge=1024, le=65535)
+    tls_certificate_path: Path | None = None
+    tls_private_key_path: Path | None = None
+
+    # Bootstrap enrollment is the one ceremony that creates authority from
+    # nothing, so it stays off unless deliberately switched on for the ceremony.
+    bootstrap_enabled: bool = False
+
+    @field_validator("http_host")
+    @classmethod
+    def validate_bind_address(cls, value: str) -> str:
+        if value in ("0.0.0.0", "::", ""):  # noqa: S104 - rejecting, not binding
+            raise ValueError("http_host must be a specific private address, never a wildcard")
+        return value
+
+    @field_validator("tls_certificate_path", "tls_private_key_path")
+    @classmethod
+    def validate_tls_path(cls, value: Path | None) -> Path | None:
+        if value is not None and not value.is_absolute():
+            raise ValueError("TLS material paths must be absolute")
+        return value
 
     @field_validator("discord_guild_id")
     @classmethod
@@ -94,7 +121,35 @@ class ProductionGatewaySettings(BaseSettings):
             0
         ) or self.discord_timestamp_tolerance > timedelta(minutes=5):
             raise ValueError("discord_timestamp_tolerance must be at most five minutes")
+
+        if (self.tls_certificate_path is None) != (self.tls_private_key_path is None):
+            raise ValueError("TLS requires both a certificate and a private key, or neither")
+
+        # The origin is what the browser will send and what the WebAuthn
+        # boundary compares against. A *non-default* port means Olympus is
+        # terminating TLS itself on that port, so it has to be the port actually
+        # being served — otherwise every ceremony fails the origin check with
+        # nothing to indicate why. Port 443 is left alone: pydantic fills it in
+        # for an origin that never named a port, so treating it as explicit
+        # would invent a constraint the operator did not write.
+        if origin.port not in (None, 443) and origin.port != self.http_port:
+            raise ValueError(
+                f"webauthn_origin names port {origin.port} but the gateway serves {self.http_port}"
+            )
         return self
+
+    @property
+    def public_host_header(self) -> str:
+        """The exact Host header a browser will send for the public origin.
+
+        Not the same as the RP ID. A non-default port belongs in the Host header
+        and the origin, and must never appear in the relying-party ID, which is
+        a bare domain by specification.
+        """
+        origin = self.webauthn_origin
+        if origin.port is not None and origin.port != 443:
+            return f"{origin.host}:{origin.port}"
+        return str(origin.host)
 
 
 def _is_ip_address(value: str) -> bool:
