@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from olympus.contracts.commands import TrustLabel
+from olympus.nodes.capabilities import CAPABILITY_CATALOG
 from olympus.nodes.channel import (
     CLOSE_NORMAL,
     CLOSE_POLICY_VIOLATION,
@@ -69,6 +70,8 @@ class _PendingJob:
     progress_events_dropped: int = 0
     progress_delivery_failures: int = 0
     artifact_ids: list[str] = field(default_factory=list)
+    artifacts_refused: int = 0
+    artifact_bytes: int = 0
     on_progress: ProgressCallback | None = None
 
 
@@ -282,13 +285,7 @@ class NodeSession:
             await self._handle_progress(frame)
             return
         if frame.type == "job-artifact":
-            pending = self._pending.get(frame.job_id)
-            if (
-                pending is not None
-                and pending.attempt == frame.attempt
-                and len(pending.artifact_ids) < MAX_ARTIFACTS_PER_JOB
-            ):
-                pending.artifact_ids.append(frame.artifact_id)
+            self._handle_artifact(frame)
             return
         if frame.type == "job-result":
             pending = self._pending.get(frame.job_id)
@@ -304,6 +301,40 @@ class NodeSession:
                 pending.result.set_result(frame)
             return
         raise NodeMeshError(NodeReason.FRAME_UNEXPECTED, "unexpected frame for an open session")
+
+    def _handle_artifact(self, frame: JobArtifactFrame) -> None:
+        """Accept an artifact only within what its capability declared.
+
+        The catalog states ``max_artifacts`` and ``max_artifact_bytes`` per
+        capability, and until now nothing read them: artifacts were bounded
+        only by a global ceiling, so a capability declared to return none could
+        still stream up to that ceiling. A declaration nothing enforces is not
+        a bound, and node output is untrusted by definition — this is the side
+        of the channel that has to hold.
+
+        Excess is dropped and counted rather than closing the session. A node
+        that miscounts its own artifacts is misbehaving, not hostile, and
+        tearing down a session mid-job would lose the result too. The count is
+        reported so a node that keeps doing it is visible.
+        """
+        pending = self._pending.get(frame.job_id)
+        if pending is None or pending.attempt != frame.attempt:
+            return
+
+        descriptor = CAPABILITY_CATALOG.get(pending.capability)
+        allowed_count = MAX_ARTIFACTS_PER_JOB if descriptor is None else descriptor.max_artifacts
+        allowed_bytes = 0 if descriptor is None else descriptor.max_artifact_bytes
+
+        if len(pending.artifact_ids) >= min(allowed_count, MAX_ARTIFACTS_PER_JOB):
+            pending.artifacts_refused += 1
+            return
+        size = len(frame.data)
+        if pending.artifact_bytes + size > allowed_bytes:
+            pending.artifacts_refused += 1
+            return
+
+        pending.artifact_bytes += size
+        pending.artifact_ids.append(frame.artifact_id)
 
     async def _handle_progress(self, frame: JobProgressFrame) -> None:
         pending = self._pending.get(frame.job_id)
@@ -431,7 +462,12 @@ class NodeSession:
             attempt=pending.attempt,
             output=output,
             output_truncated=frame.output_truncated or truncated_here,
-            artifact_ids=tuple(pending.artifact_ids) or frame.artifact_ids,
+            # Only artifacts this session actually accepted. Falling back to
+            # the list in the result frame would take the node's word for what
+            # it produced: a node could reference artifacts it never sent, or
+            # ones that were refused for exceeding the capability's declared
+            # bounds, and the refusal would mean nothing.
+            artifact_ids=tuple(pending.artifact_ids),
             reason=frame.reason,
             message=redact_text(frame.message),
             replayed=frame.replayed,

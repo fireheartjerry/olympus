@@ -462,7 +462,14 @@ async def test_secrets_in_node_output_are_redacted_before_the_control_plane_reco
     assert "abcdefghij" not in messages[0]
 
 
-async def test_artifacts_are_streamed_and_referenced_by_the_result() -> None:
+async def test_artifacts_are_refused_for_a_capability_that_declares_none() -> None:
+    """The catalog says system.inspect returns no artifacts. That has to bind.
+
+    Artifacts were bounded only by a global ceiling, so a capability declaring
+    zero could still stream up to it — and the result frame's own artifact list
+    was trusted as a fallback, so even a refused artifact reappeared in the
+    outcome. A declaration nothing enforces is not a bound.
+    """
     mesh = Mesh()
     await mesh.enroll()
     provider = FakeCapabilityProvider(
@@ -481,7 +488,24 @@ async def test_artifacts_are_streamed_and_referenced_by_the_result() -> None:
         outcome = await asyncio.wait_for(mesh.dispatch.run_job(job()), timeout=5)
     finally:
         await connection.aclose()
-    assert outcome.artifact_ids == ("screenshot-1",)
+    assert outcome.artifact_ids == ()
+
+
+async def test_a_node_cannot_reference_artifacts_it_never_sent() -> None:
+    """The result frame is a claim, not evidence.
+
+    A node that lists artifact ids in its result without streaming them is
+    describing files the control plane never received.
+    """
+    mesh = Mesh()
+    await mesh.enroll()
+    connection = await connect(mesh, FakeCapabilityProvider(progress_messages=()))
+    try:
+        outcome = await asyncio.wait_for(mesh.dispatch.run_job(job()), timeout=5)
+    finally:
+        await connection.aclose()
+
+    assert outcome.artifact_ids == ()
 
 
 async def test_freezing_refuses_new_dispatch_and_stops_work_in_flight() -> None:

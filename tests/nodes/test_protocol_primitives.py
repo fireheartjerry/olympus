@@ -427,3 +427,26 @@ def test_no_capability_declares_more_output_than_a_frame_can_carry() -> None:
             f"frame carries at most {MAX_FRAME_BYTES}"
         )
         assert descriptor.max_output_bytes >= 256, name
+
+
+def test_no_enabled_capability_returns_artifacts_yet() -> None:
+    """Artifact bounds are enforced from the catalog, so this states the truth.
+
+    Every enabled capability declares zero artifacts, which now means a node
+    streaming one is refused. Enabling artifacts for a capability is therefore
+    a deliberate edit here as well as in the catalog.
+    """
+    for name in ENABLED_CAPABILITIES:
+        descriptor = CAPABILITY_CATALOG[name]
+        assert descriptor.max_artifacts == 0, f"{name} declares artifacts"
+        assert descriptor.max_artifact_bytes == 0, f"{name} declares artifact bytes"
+
+
+def test_artifact_allowances_are_internally_consistent() -> None:
+    # A capability allowing artifacts but no bytes for them, or bytes but no
+    # artifacts, can never actually return one — a bound that reads as
+    # permission but behaves as refusal.
+    for name, descriptor in CAPABILITY_CATALOG.items():
+        allows_count = descriptor.max_artifacts > 0
+        allows_bytes = descriptor.max_artifact_bytes > 0
+        assert allows_count == allows_bytes, f"{name} allows artifacts inconsistently"
