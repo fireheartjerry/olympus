@@ -268,3 +268,65 @@ async def test_object_lock_store_writes_with_retention_and_refuses_replacement()
         await store.put_once(call["Key"], b"different")
 
     assert (await exporter.verify()).intact is True
+
+
+async def test_exports_the_authority_chain_whose_events_are_a_different_shape() -> None:
+    """The authority log is not shaped like the node-mesh log.
+
+    Its ``body`` is canonical JSON *text* rather than a method returning a
+    dict, and its hashes are raw bytes rather than hex. Export claimed to work
+    over either chain but had only ever been exercised against the node-mesh
+    shape, so the first real authority export raised
+    ``TypeError: 'str' object is not callable`` against live production data.
+    """
+    from olympus.authority.repository import AuditEvent
+
+    events = tuple(
+        AuditEvent(
+            sequence=index + 1,
+            event_type="lease-issued",
+            body=json.dumps({"lease": index}, sort_keys=True, separators=(",", ":")),
+            previous_hash=bytes([index]) * 32,
+            event_hash=bytes([index + 1]) * 32,
+        )
+        for index in range(3)
+    )
+
+    store = InMemoryWriteOnceStore()
+    exporter = AuditExporter(store=store, chain="authority", max_events_per_segment=2)
+    result = await exporter.export(events)
+
+    assert result.events_exported == 3
+
+    # Bytes hashes must have become hex, or the segment would not be JSON at all.
+    raw = await store.get("audit/authority/000000000001-000000000002.json")
+    assert raw is not None
+    document = json.loads(raw)
+    assert document["first_previous_hash"] == "00" * 32
+    assert document["events"][0]["previous_hash"] == "00" * 32
+    assert document["events"][0]["event_hash"] == "01" * 32
+    # The canonical JSON body is parsed back into structure, not smuggled as text.
+    assert document["events"][0]["body"] == {"lease": 0}
+
+
+async def test_both_chain_shapes_survive_a_round_trip_through_restore() -> None:
+    from olympus.authority.repository import AuditEvent
+
+    authority = tuple(
+        AuditEvent(
+            sequence=index + 1,
+            event_type="lease-issued",
+            body=json.dumps({"n": index}),
+            previous_hash=bytes([index]) * 32,
+            event_hash=bytes([index + 1]) * 32,
+        )
+        for index in range(2)
+    )
+
+    for name, events in (("node-mesh", _chain(2)), ("authority", authority)):
+        store = InMemoryWriteOnceStore()
+        exporter = AuditExporter(store=store, chain=name)
+        await exporter.export(events)
+        restored = await exporter.restore()
+        assert len(restored) == 2, name
+        assert [event["sequence"] for event in restored] == [1, 2], name
