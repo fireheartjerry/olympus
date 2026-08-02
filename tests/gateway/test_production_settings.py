@@ -162,3 +162,45 @@ def test_tls_paths_must_be_absolute() -> None:
 def test_bootstrap_enrollment_is_off_unless_explicitly_enabled() -> None:
     assert valid_settings().bootstrap_enabled is False
     assert valid_settings(bootstrap_enabled=True).bootstrap_enabled is True
+
+
+def test_audit_export_needs_a_bucket_and_a_key_together() -> None:
+    """Half a configuration is worse than none.
+
+    A bucket without a signing key would export segments nobody can attribute;
+    a key without a bucket exports nothing at all while looking configured.
+    """
+    with pytest.raises(ValidationError):
+        valid_settings(audit_export_bucket="olympus-audit")
+    with pytest.raises(ValidationError):
+        valid_settings(audit_export_kms_key_id="arn:aws:kms:us-west-2:1:key/abc")
+
+    settings = valid_settings(
+        audit_export_bucket="olympus-audit",
+        audit_export_kms_key_id="arn:aws:kms:us-west-2:1:key/abc",
+    )
+    assert settings.audit_export_bucket == "olympus-audit"
+
+
+def test_audit_export_is_absent_by_default_so_development_needs_no_aws() -> None:
+    settings = valid_settings()
+
+    assert settings.audit_export_bucket is None
+    assert settings.audit_export_kms_key_id is None
+
+
+def test_audit_export_defaults_match_the_deployed_bucket() -> None:
+    # GOVERNANCE, not COMPLIANCE — a deliberate, documented choice.
+    settings = valid_settings()
+
+    assert settings.audit_export_retention_mode == "GOVERNANCE"
+    assert settings.audit_export_retention_days == 30
+
+
+def test_audit_export_chain_must_be_named() -> None:
+    with pytest.raises(ValidationError):
+        valid_settings(
+            audit_export_bucket="olympus-audit",
+            audit_export_kms_key_id="arn:aws:kms:us-west-2:1:key/abc",
+            audit_export_chain="   ",
+        )

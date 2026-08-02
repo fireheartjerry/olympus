@@ -96,3 +96,10 @@ python_version = "3.13"
 strict = true
 packages = ["olympus"]
 mypy_path = ["src"]
+
+# boto3 ships no type information and is an optional extra, so it is absent in
+# CI entirely. Scoped to these modules rather than relaxed globally: everything
+# Olympus actually owns stays strict.
+[[tool.mypy.overrides]]
+module = ["boto3", "boto3.*", "botocore", "botocore.*"]
+ignore_missing_imports = true

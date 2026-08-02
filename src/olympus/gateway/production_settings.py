@@ -49,6 +49,19 @@ class ProductionGatewaySettings(BaseSettings):
     # nothing, so it stays off unless deliberately switched on for the ceremony.
     bootstrap_enabled: bool = False
 
+    # Off-host audit export. An export subsystem that exists but never runs
+    # protects nothing: every event since the last manual run lives only in the
+    # database, which is precisely where a compromised control plane can rewrite
+    # it. These are optional so a development gateway needs no AWS at all, but
+    # when one is set they all must be.
+    audit_export_bucket: str | None = None
+    audit_export_kms_key_id: str | None = None
+    audit_export_chain: str = "authority-production"
+    audit_export_region: str = "us-west-2"
+    audit_export_profile: str | None = None
+    audit_export_retention_days: int = Field(default=30, ge=1)
+    audit_export_retention_mode: Literal["GOVERNANCE", "COMPLIANCE"] = "GOVERNANCE"
+
     @field_validator("http_host")
     @classmethod
     def validate_bind_address(cls, value: str) -> str:
@@ -124,6 +137,14 @@ class ProductionGatewaySettings(BaseSettings):
 
         if (self.tls_certificate_path is None) != (self.tls_private_key_path is None):
             raise ValueError("TLS requires both a certificate and a private key, or neither")
+
+        if (self.audit_export_bucket is None) != (self.audit_export_kms_key_id is None):
+            raise ValueError(
+                "audit export requires both a bucket and a signing key, or neither; "
+                "exporting unsigned segments would produce evidence nobody can attribute"
+            )
+        if not self.audit_export_chain.strip():
+            raise ValueError("audit_export_chain must not be empty")
 
         # The origin is what the browser will send and what the WebAuthn
         # boundary compares against. A *non-default* port means Olympus is

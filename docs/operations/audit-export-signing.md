@@ -252,3 +252,45 @@ That is what lets a verifier compare links across chains at all.
 Verified live afterwards: authority chain `authority-production`, one event
 (`lease-issued`), sealed under GOVERNANCE, signed by the pinned key, and
 `AUTHENTIC` under offline verification.
+
+## 10. The export actually runs now
+
+An export subsystem that only runs when someone remembers protects nothing.
+Between runs every new audit event lives solely in PostgreSQL — the one place a
+compromised control plane can rewrite it — so "manual export" meant the
+protected window was whatever the last human action happened to be.
+
+This was not theoretical. When the timer was added, the production chain held
+three events and exactly **one** was off-host; the two most recent
+authorizations existed only in the database.
+
+`olympus-audit-export.timer` now runs every 15 minutes (and 2 minutes after
+boot, `Persistent=true` so downtime is caught up rather than silently skipped).
+
+It is a **separate one-shot process, not a loop inside the gateway.** Export
+talks to AWS; the gateway serves the Face ID ceremony. Folding one into the
+other would let an S3 outage, a throttle, or an expired credential stall the
+process authority depends on. A timer-run job can fail on its own.
+
+Each run:
+
+1. Confirms the bucket still has Object Lock retention **before** writing — a
+   bucket whose lock was removed would accept the writes happily and produce a
+   chain that looks exported but can be deleted at will.
+2. Exports everything not yet off-host, signing each segment.
+3. Verifies authenticity **every run**, not only when something was written:
+   the question is whether the off-host copy is still trustworthy, and that
+   answer can change without this process having done anything.
+4. Exits non-zero and loud on failure. A silent failure is the worst outcome
+   here, because the operator would believe evidence exists when it does not.
+
+```bash
+systemctl --user list-timers olympus-audit-export.timer
+journalctl --user -u olympus-audit-export.service -n 20
+systemctl --user start olympus-audit-export.service   # force a run
+```
+
+Configuration lives in `.env.production` under `OLYMPUS_PRODUCTION_AUDIT_EXPORT_*`.
+Bucket and signing key must be set together or not at all: a bucket without a
+key would export segments nobody can attribute, and a key without a bucket
+exports nothing while looking configured.

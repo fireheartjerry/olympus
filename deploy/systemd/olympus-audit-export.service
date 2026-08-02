@@ -1,0 +1,16 @@
+[Unit]
+Description=Export the Olympus authority audit chain to signed write-once storage
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+WorkingDirectory=/home/ubuntu/olympus
+ExecStart=/home/ubuntu/olympus/.venv/bin/python -m olympus.runtime.audit_export_job
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=default.target

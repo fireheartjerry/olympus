@@ -1,0 +1,12 @@
+[Unit]
+Description=Export the Olympus audit chain off-host every 15 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+# Persistent so a host that was off does not silently leave a long gap in
+# what is protected; the first boot after downtime catches up immediately.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
