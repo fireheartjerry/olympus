@@ -833,3 +833,38 @@ These rules may not be weakened during implementation:
 12. Discord mutation authority requires a valid authority lease or scope-limited schedule capability.
 13. The $50 variable monthly ceiling cannot be overridden by an LLM.
 14. Full autonomy activates only after staged gates and Jerry's Face ID approval.
+
+## 23. Amendments
+
+Amendments extend this specification without rewriting approved text. They may
+add concepts and deliverables; they may not weaken Section 22.
+
+### 23.1 Execution nodes are first class (2026-08-01)
+
+Approved design: `2026-08-01-distributed-execution-node-mesh-design.md`.
+
+This specification originally described one machine that both decides and
+executes, with temporary cloud workers as the only additional execution
+surface. It is amended so that **execution node** is a first-class concept.
+
+- The VPS remains the canonical always-on brain and the sole control plane. It
+  owns identity, policy, Temporal state, scheduling, audit, and memory.
+- The VPS, Jerry's Windows PCs, and future cloud machines are all execution
+  nodes. Each exposes typed, versioned capabilities and holds only the
+  capabilities the control plane has granted it.
+- Nodes maintain outbound authenticated connections over Tailscale-private
+  networking. The control plane never dials a node, and no node opens an
+  inbound management port. Over that connection nodes receive jobs and return
+  events, artifacts, health, and capability state.
+- Discord, the phone, and the dashboard remain command and observation
+  surfaces. They are never execution nodes and never hold a capability.
+- Node-reported capabilities, health, and output are `external-untrusted`
+  input. The control-plane grant, not the node's declaration, decides what may
+  run, and node output can never control a privileged sink.
+- Section 12.4's temporary cloud workers become one node kind rather than a
+  separate mechanism.
+- Section 21's initial deliverables gain: the machine registry and capability
+  catalog, the `olympus-node/1` worker protocol, the portable node agent and
+  its Windows installer, and the node console.
+
+Every Section 22 invariant is unchanged and is enforced on the node path.

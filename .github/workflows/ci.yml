@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 15
     env:
       OLYMPUS_TEST_DATABASE_DSN: postgresql+asyncpg://olympus_test:olympus_test_password@127.0.0.1:5432/olympus_test
+      # The node-mesh persistence tests speak psycopg against the same server.
+      OLYMPUS_TEST_DATABASE_URL: postgresql://olympus_test:olympus_test_password@127.0.0.1:5432/olympus_test
     services:
       postgres:
         # postgres:17.6-bookworm, linux/amd64 manifest

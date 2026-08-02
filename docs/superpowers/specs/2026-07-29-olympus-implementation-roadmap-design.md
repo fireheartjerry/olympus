@@ -50,6 +50,34 @@ resume controls. This slice performs no privileged or third-party mutations.
 expired, revoked, malformed, replayed, or anomalous leases cannot authorize
 mutation; emergency controls remain effective across process restarts.
 
+### Slice 1N — Execution-node Foundation
+
+Make execution nodes first class: a machine registry, a typed capability
+catalog, single-use enrollment tokens, heartbeats and derived connection
+state, a versioned mutually authenticated worker protocol, Temporal-owned
+dispatch with deduplicated replay-safe recovery, a mesh-wide dispatch kill
+switch, a mobile node console, and one bounded non-mutating capability.
+
+**Design:** `2026-08-01-distributed-execution-node-mesh-design.md`.
+
+**Coverage:** Parent Sections 5, 8, 12.4, 14.1, 15.1, 16, 23.1, and 22.
+
+**Gate:** Only an authorized operator can grant capabilities or dispatch;
+enrollment tokens work once, briefly, and only in scope; both directions of
+the handshake are authenticated and replay-resistant; a node declaration
+cannot widen its grant; re-dispatch replays instead of repeating work;
+cancellation yields a declared terminal outcome; output and artifacts are
+bounded and redacted; freezing stops new and in-flight work and clears only
+against the exact freeze epoch; and no shell, file, browser, or desktop
+capability can be dispatched.
+
+This slice is independent of Slice 1: it uses the existing development
+operator boundary and inherits lease-backed identity unchanged when Slice 1
+lands. Its capability catalog reserves the names for the later node
+capabilities (`fs.*`, `shell.powershell`, `agent.*`, `browser.session`,
+`desktop.*`) so their risk classification is fixed before any of them is
+built.
+
 ### Slice 2 — Immutable Governance Kernel
 
 Define the policy bundle schemas and isolated release path for authorization,
@@ -203,9 +231,12 @@ Each slice follows the same controlled cycle:
 
 ## 5. Immediate Next Step
 
-With Slice 0 accepted, the next design unit is Slice 1: trusted Discord
-ingress, authority leases, anomaly revocation, and emergency controls. Its
-design must preserve the existing no-op execution boundary and must not
-authorize Discord connectivity, WebAuthn deployment, production credentials,
-or any external mutation until its separate implementation plan and execution
-are approved.
+Slice 0 is accepted. Slice 1N is implemented and locally verified; it does not
+authorize deployment, and its registry and audit chain remain in-process until
+Slice 6.
+
+The next design units are Slice 1 (trusted Discord ingress, authority leases,
+anomaly revocation, and emergency controls) and, once Slice 1 and Slice 3
+exist, the first mutating node capability. Neither may authorize Discord
+connectivity, WebAuthn deployment, production credentials, or any external
+mutation until its separate implementation plan and execution are approved.

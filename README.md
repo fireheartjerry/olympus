@@ -11,7 +11,7 @@ The implementation source of truth is the approved [design specification](docs/s
   governed MVP for roadmap Slices 2–13 are implemented and verified locally.
   Connected providers and production infrastructure remain deliberately
   inactive pending their acceptance gates.
-- Repository visibility: private.
+- Repository visibility: public.
 
 The exact MVP capability map, verification evidence, and remaining production
 gates are recorded in
@@ -50,6 +50,54 @@ required, pending network-policy and blocked-admission status, but are inert
 metadata. Actual admission and network enforcement remain pending the separate
 network-policy security slice. Rendering and validation never contact a
 cluster.
+
+## Execution node mesh
+
+The VPS is the canonical always-on brain. Enrolled computers — the VPS itself,
+Jerry's Windows PC, future cloud machines — are execution nodes that expose
+typed, versioned capabilities. Nodes always dial out to the control plane over
+Tailscale-private networking; nothing dials a node, and no inbound Windows port
+is opened. The phone, Discord, and the HTTP API are command and observation
+surfaces, never execution nodes.
+
+The approved design is
+[the node-mesh specification](docs/superpowers/specs/2026-08-01-distributed-execution-node-mesh-design.md).
+The operator runbook, threat model, and revocation procedures are in
+[docs/operations/node-mesh.md](docs/operations/node-mesh.md).
+
+Exactly one capability is dispatchable in this slice: `system.inspect@1`, a
+bounded read-only host report that reads no environment variable, no process
+list, no network configuration, and no user data, launches no subprocess, and
+opens only the two fixed Linux counter files `/proc/meminfo` and
+`/proc/uptime`. `shell.powershell@1`, `fs.read@1`, `fs.write@1`, `agent.claude@1`,
+`agent.codex@1`, `browser.session@1`, `desktop.stream@1`, and
+`desktop.takeover@1` exist in the catalog as **reserved** and are refused at
+dispatch.
+
+PostgreSQL is the canonical owner of the registry, enrollment tokens, job
+metadata, and the audit chain: set `OLYMPUS_DATABASE_URL` and the schema
+migrates on startup. Every state change commits in the same transaction as the
+audit event describing it, and a restart clears sessions, reconciles orphaned
+jobs, and comes back still frozen and still revoked. With no database
+configured the mesh falls back to the in-process store, which loses all of
+that on restart; the node edge logs which store it chose so the fallback is
+never silent. See
+[the persistence design](docs/superpowers/specs/2026-08-01-node-mesh-persistence-design.md).
+
+### Run the end-to-end demonstration
+
+This starts an ephemeral Temporal dev server, the gateway on a loopback port, a
+real node agent over a real WebSocket, and then issues an enrollment token,
+enrolls, dispatches a job, streams progress, prints the result, exercises the
+dispatch kill switch, and prints the verified audit chain.
+
+```powershell
+uv run python -m olympus.demo.node_mesh
+```
+
+It contacts no external service, mutates no host state, and opens no listener
+other than a loopback port it chooses itself. The first run downloads the
+Temporal CLI dev server.
 
 ## Development verification
 

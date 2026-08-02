@@ -1,5 +1,3 @@
-import hmac
-import re
 from datetime import UTC, datetime
 from typing import Annotated, Protocol
 from uuid import uuid4
@@ -8,10 +6,10 @@ from fastapi import FastAPI, Header, HTTPException, status
 from temporalio.client import Client
 
 from olympus.contracts.commands import CommandAccepted, CommandEnvelope, CommandRequest
+from olympus.gateway.auth import matches_development_token, require_single_authority_header
+from olympus.gateway.nodes_api import NodeMeshRuntime, register_node_routes
 from olympus.gateway.settings import GatewaySettings
 from olympus.workflows.command import COMMAND_WORKFLOW_EXECUTION_TIMEOUT, CommandWorkflow
-
-_AUTHORITY_HEADER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
 
 class CommandStarter(Protocol):
@@ -34,27 +32,11 @@ class TemporalCommandStarter:
         return CommandAccepted(job_id=command.job_id)
 
 
-def _require_single_authority_header(values: list[str]) -> str:
-    if len(values) != 1 or _AUTHORITY_HEADER_PATTERN.fullmatch(values[0]) is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="invalid authority header",
-        )
-    return values[0]
-
-
-def _matches_development_token(authorization_values: list[str] | None, expected_token: str) -> bool:
-    if authorization_values is None or len(authorization_values) != 1:
-        return False
-    try:
-        received = authorization_values[0].encode("ascii")
-        expected = f"Bearer {expected_token}".encode("ascii")
-    except UnicodeEncodeError:
-        return False
-    return hmac.compare_digest(received, expected)
-
-
-def create_app(settings: GatewaySettings, starter: CommandStarter) -> FastAPI:
+def create_app(
+    settings: GatewaySettings,
+    starter: CommandStarter,
+    node_mesh: NodeMeshRuntime | None = None,
+) -> FastAPI:
     app = FastAPI(title="Olympus Gateway", version="0.1.0")
 
     @app.get("/health/live")
@@ -78,7 +60,7 @@ def create_app(settings: GatewaySettings, starter: CommandStarter) -> FastAPI:
         ],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> CommandAccepted:
-        if not _matches_development_token(
+        if not matches_development_token(
             authorization,
             settings.dev_command_token.get_secret_value(),
         ):
@@ -87,8 +69,8 @@ def create_app(settings: GatewaySettings, starter: CommandStarter) -> FastAPI:
                 detail="invalid development command token",
             )
 
-        commander_id = _require_single_authority_header(commander_ids)
-        authority_lease_id = _require_single_authority_header(authority_lease_ids)
+        commander_id = require_single_authority_header(commander_ids)
+        authority_lease_id = require_single_authority_header(authority_lease_ids)
         command = CommandEnvelope(
             job_id=f"job-{uuid4()}",
             commander_id=commander_id,
@@ -97,5 +79,8 @@ def create_app(settings: GatewaySettings, starter: CommandStarter) -> FastAPI:
             received_at=datetime.now(UTC).isoformat(),
         )
         return await starter.start(command)
+
+    if node_mesh is not None:
+        register_node_routes(app, settings=settings, runtime=node_mesh)
 
     return app
