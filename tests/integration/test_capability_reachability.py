@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import hashlib
 from pathlib import Path
 from typing import Any
@@ -205,10 +206,8 @@ async def _walk_the_stack(capability: str, exercise: dict[str, Any], directory: 
         for task in (agent_task, pump_task):
             task.cancel()
         for task in (agent_task, pump_task):
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
-            except (asyncio.CancelledError, Exception):
-                pass
 
     # And the capability actually did its job, rather than returning an empty
     # success that a reachability check alone would accept.
