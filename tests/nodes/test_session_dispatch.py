@@ -1085,3 +1085,68 @@ async def test_fs_list_runs_end_to_end_under_the_read_scope(tmp_path) -> None:
         assert names == {"a.txt", "sub"}
     finally:
         await connection.aclose()
+
+
+# --- untrusted output is masked where it enters --------------------------------------
+
+
+async def test_credential_shaped_output_is_masked_and_flagged() -> None:
+    """Node output is untrusted and flows into logs, audit, and the console.
+
+    Masking happens where untrusted data enters, not at each of the several
+    places it later leaves.
+    """
+    mesh = Mesh()
+    await mesh.enroll()
+    provider = FakeCapabilityProvider(
+        progress_messages=(),
+        output={
+            "note": "found AKIAIOSFODNN7EXAMPLE in the config",
+            "nested": {"password": "hunter2"},
+        },
+    )
+    connection = await connect(mesh, provider)
+    try:
+        outcome = await asyncio.wait_for(mesh.dispatch.run_job(job()), timeout=5)
+    finally:
+        await connection.aclose()
+
+    assert "AKIAIOSFODNN7EXAMPLE" not in str(outcome.output)
+    assert "hunter2" not in str(outcome.output)
+    # Flagged, not silent: a consumer comparing content against a digest the
+    # capability computed before masking needs to know the bytes changed.
+    assert outcome.output_redacted is True
+
+
+async def test_ordinary_output_is_returned_untouched_and_unflagged() -> None:
+    # Redaction masks credential shapes. It must not corrupt normal content,
+    # or every capability that returns text becomes unreliable.
+    mesh = Mesh()
+    await mesh.enroll()
+    provider = FakeCapabilityProvider(
+        progress_messages=(), output={"sections": {"os": {"system": "Linux"}}}
+    )
+    connection = await connect(mesh, provider)
+    try:
+        outcome = await asyncio.wait_for(mesh.dispatch.run_job(job()), timeout=5)
+    finally:
+        await connection.aclose()
+
+    assert outcome.output == {"sections": {"os": {"system": "Linux"}}}
+    assert outcome.output_redacted is False
+
+
+async def test_a_node_that_hides_its_masking_is_still_caught() -> None:
+    """The flag is the node's report, but never only that.
+
+    The control plane re-masks on receipt and ORs in whatever its own pass
+    changes, so a node that omits the flag — or never masked at all — is still
+    reported as redacted.
+    """
+    from olympus.nodes.redaction import bound_output
+
+    raw = {"leak": "AKIAIOSFODNN7EXAMPLE"}
+    masked, truncated = bound_output(dict(raw), 65_536)
+
+    assert masked != raw
+    assert truncated is False

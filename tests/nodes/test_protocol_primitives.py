@@ -46,7 +46,12 @@ from olympus.nodes.protocol import (
     parse_server_frame,
     server_proof_payload,
 )
-from olympus.nodes.redaction import REDACTION_PLACEHOLDER, bound_text, redact_text, redact_value
+from olympus.nodes.redaction import (
+    REDACTION_PLACEHOLDER,
+    bound_text,
+    redact_text,
+    redact_value,
+)
 
 
 def test_only_bounded_read_only_capabilities_are_dispatchable_today() -> None:
@@ -450,3 +455,37 @@ def test_artifact_allowances_are_internally_consistent() -> None:
         allows_count = descriptor.max_artifacts > 0
         allows_bytes = descriptor.max_artifact_bytes > 0
         assert allows_count == allows_bytes, f"{name} allows artifacts inconsistently"
+
+
+def test_a_credential_named_field_is_redacted_whatever_its_value_looks_like() -> None:
+    """Structured secrets, not just secrets embedded in text.
+
+    `password=hunter2` inside a string was caught. {"password": "hunter2"} was
+    not: the name and the secret are separate values and neither looks like a
+    secret on its own.
+    """
+    redacted = redact_value(
+        {
+            "password": "hunter2",
+            "api_key": "short",
+            "client_secret": {"nested": "still-a-secret"},
+            "note": "ordinary text",
+            "count": 7,
+        }
+    )
+
+    assert redacted["password"] == REDACTION_PLACEHOLDER
+    assert redacted["api_key"] == REDACTION_PLACEHOLDER
+    assert redacted["client_secret"] == REDACTION_PLACEHOLDER
+    # And it must not swallow everything it touches.
+    assert redacted["note"] == "ordinary text"
+    assert redacted["count"] == 7
+
+
+def test_credential_key_matching_is_anchored_not_substring() -> None:
+    # "passenger_count" or "token_count" are not credentials; matching on a
+    # substring would redact ordinary fields and make output untrustworthy in
+    # the other direction.
+    redacted = redact_value({"passenger_count": 3, "token_count": 12, "subtokens": ["a"]})
+
+    assert redacted == {"passenger_count": 3, "token_count": 12, "subtokens": ["a"]}

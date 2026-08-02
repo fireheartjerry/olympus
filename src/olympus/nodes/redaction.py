@@ -31,6 +31,16 @@ _ASSIGNMENT_PATTERN = re.compile(
     r"([^\s\"',;}\]]{3,})"
 )
 
+# Field names whose *value* is a credential regardless of what the value looks
+# like. The assignment pattern above catches `password=hunter2` inside a string;
+# this catches {"password": "hunter2"}, where the name and the secret are
+# separate values and neither looks like a secret on its own.
+_CREDENTIAL_KEYS = re.compile(
+    r"(?i)^(pass|passwd|password|secret|token|api[_-]?key|apikey|access[_-]?key"
+    r"|secret[_-]?key|private[_-]?key|credential|credentials|authorization|auth"
+    r"|session[_-]?key|refresh[_-]?token|client[_-]?secret)$"
+)
+
 _MAX_REDACTION_DEPTH = 8
 
 
@@ -56,7 +66,11 @@ def redact_value(value: Any, *, depth: int = 0) -> Any:
         return redact_text(value)
     if isinstance(value, dict):
         return {
-            redact_text(str(key)): redact_value(item, depth=depth + 1)
+            redact_text(str(key)): (
+                REDACTION_PLACEHOLDER
+                if _CREDENTIAL_KEYS.match(str(key).strip())
+                else redact_value(item, depth=depth + 1)
+            )
             for key, item in list(value.items())[:64]
         }
     if isinstance(value, (list, tuple)):

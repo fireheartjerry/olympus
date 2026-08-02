@@ -263,6 +263,11 @@ class NodeJobOutcome:
     attempt: int
     output: dict[str, Any] = field(default_factory=dict)
     output_truncated: bool = False
+    # Whether credential-shaped content was masked on the way in. Reported
+    # rather than silent: a consumer comparing returned content against a
+    # digest the capability computed needs to know the bytes changed after
+    # that digest was taken.
+    output_redacted: bool = False
     artifact_ids: tuple[str, ...] = ()
     reason: str = ""
     message: str = ""

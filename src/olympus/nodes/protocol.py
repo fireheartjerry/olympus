@@ -167,6 +167,11 @@ class JobResultFrame(_Frame):
     status: Literal["succeeded", "failed", "cancelled", "rejected"]
     output: dict[str, Any] = Field(default_factory=dict)
     output_truncated: bool = False
+    # Set by the node when masking changed its own output. The node is the only
+    # party that ever sees the unmasked bytes, so it is the only one that can
+    # say. The control plane re-masks on receipt regardless and ORs in whatever
+    # its own pass changes, so a node that lies by omission is still caught.
+    output_redacted: bool = False
     artifact_ids: tuple[Identifier, ...] = Field(default=(), max_length=MAX_ARTIFACTS_PER_JOB)
     reason: ShortText = ""
     message: ShortText = ""

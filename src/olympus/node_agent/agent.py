@@ -478,9 +478,13 @@ class NodeAgent:
             reason = NodeReason.JOB_FAILED.value
             message = redact_and_bound(f"{type(exc).__name__}: {exc}", 480)[0]
 
-        output, truncated = bound_output(
-            dict(result.output) if result is not None else {}, frame.max_output_bytes
-        )
+        raw_output = dict(result.output) if result is not None else {}
+        output, truncated = bound_output(raw_output, frame.max_output_bytes)
+        # Only the node sees the unmasked bytes, so only the node can report
+        # that masking changed them. A capability returning a digest of what it
+        # read computed that digest before this, so without the flag the
+        # difference between masked content and its digest reads as tampering.
+        output_redacted = not truncated and output != raw_output
         artifact_ids = self._emit_artifacts(frame, result)
         terminal = JobResultFrame(
             job_id=frame.job_id,
@@ -489,6 +493,7 @@ class NodeAgent:
             status=status,  # type: ignore[arg-type]  # provider statuses match the literal union
             output=output,
             output_truncated=truncated,
+            output_redacted=output_redacted,
             artifact_ids=artifact_ids,
             reason=reason if status != "succeeded" else "",
             message=redact_and_bound(message, 480)[0],

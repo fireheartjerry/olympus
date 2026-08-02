@@ -452,7 +452,17 @@ class NodeSession:
         return self._outcome_of(frame, pending)
 
     def _outcome_of(self, frame: JobResultFrame, pending: _PendingJob) -> NodeJobOutcome:
-        output, truncated_here = bound_output(dict(frame.output), pending.max_output_bytes)
+        raw = dict(frame.output)
+        # bound_output already redacts before bounding, so this does not redact
+        # again — it only reports whether masking changed anything. A capability
+        # that returns a digest of what it read computed that digest before this
+        # point, so when masking fires the content and the digest legitimately
+        # disagree; without this flag that reads as tampering.
+        output, truncated_here = bound_output(raw, pending.max_output_bytes)
+        # The node's report OR whatever our own pass changed. The node is the
+        # only party that saw the unmasked bytes; re-masking here means a node
+        # that omits the flag, or never masked at all, is still caught.
+        was_redacted = frame.output_redacted or (not truncated_here and output != raw)
         return NodeJobOutcome(
             job_id=pending.job_id,
             node_id=self.node_id,
@@ -462,6 +472,7 @@ class NodeSession:
             attempt=pending.attempt,
             output=output,
             output_truncated=frame.output_truncated or truncated_here,
+            output_redacted=was_redacted,
             # Only artifacts this session actually accepted. Falling back to
             # the list in the result frame would take the node's word for what
             # it produced: a node could reference artifacts it never sent, or
