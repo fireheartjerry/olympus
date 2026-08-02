@@ -109,21 +109,62 @@ def build_segments(
                 chain=chain,
                 first_sequence=window[0].sequence,
                 last_sequence=window[-1].sequence,
-                first_previous_hash=window[0].previous_hash,
-                last_event_hash=window[-1].event_hash,
+                first_previous_hash=_hash_to_hex(window[0].previous_hash),
+                last_event_hash=_hash_to_hex(window[-1].event_hash),
                 events=tuple(_as_mapping(event) for event in window),
             )
         )
     return tuple(segments)
 
 
+def _hash_to_hex(value: Any) -> str:
+    """Normalize a chain hash to lowercase hex.
+
+    The two Olympus chains store hashes differently — the node-mesh log keeps
+    hex text, the authority log keeps raw bytes — and JSON can represent only
+    one of those. Normalizing here rather than at each call site means an
+    exported segment has a single spelling regardless of which chain produced
+    it, which is what lets a verifier compare links across them at all.
+    """
+    if isinstance(value, bytes | bytearray):
+        return bytes(value).hex()
+    return str(value)
+
+
 def _as_mapping(event: Any) -> Mapping[str, Any]:
+    """Render one audit event as the mapping that gets serialized and signed.
+
+    Both chains are supported, and they are genuinely different shapes: the
+    node-mesh event exposes ``body()`` returning a dict, while the authority
+    event carries ``body`` as canonical JSON *text* with bytes hashes. Whatever
+    the source, the result always carries ``sequence``, ``previous_hash``, and
+    ``event_hash`` as hex, because verification re-links events using exactly
+    those three fields.
+    """
     if isinstance(event, Mapping):
         return dict(event)
-    if hasattr(event, "body"):
-        body = dict(event.body())
-        body["event_hash"] = event.event_hash
-        return body
+
+    body = getattr(event, "body", None)
+
+    if callable(body):
+        mapping = dict(body())
+        mapping["event_hash"] = _hash_to_hex(event.event_hash)
+        mapping["previous_hash"] = _hash_to_hex(mapping.get("previous_hash", event.previous_hash))
+        return mapping
+
+    if body is not None:
+        # The authority chain hashes a canonical JSON string. It is parsed back
+        # into structure here so the exported segment stays one document rather
+        # than a document with JSON smuggled inside a string field; the hash
+        # that binds it is carried alongside either way.
+        return {
+            "sequence": event.sequence,
+            "event_type": getattr(event, "event_type", ""),
+            "body": json.loads(body) if isinstance(body, str) else body,
+            "previous_hash": _hash_to_hex(event.previous_hash),
+            "event_hash": _hash_to_hex(event.event_hash),
+        }
+
     from dataclasses import asdict, is_dataclass
 
     if is_dataclass(event) and not isinstance(event, type):
