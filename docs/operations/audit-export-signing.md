@@ -1,6 +1,6 @@
 # Olympus Signed Audit Export — Operator Runbook
 
-**Status:** Implemented and verified live against real S3 and real KMS
+**Status:** Implemented and verified live against real S3 and real KMS, over both audit chains
 
 **Date:** 2026-08-01
 
@@ -228,3 +228,27 @@ The `public_key_der_sha256` fingerprint in the trust store is redundant with the
 key itself, and that is the point: it gives a human reviewing a diff of that
 file something short to compare, so a swapped key is visible without decoding
 base64. `load_keyring()` refuses a mismatch.
+
+## 9. Both chains, and why that needed fixing
+
+Export works over the node-mesh log and the authority log, but they are not the
+same shape and the code originally assumed they were:
+
+| | node-mesh | authority |
+|---|---|---|
+| `body` | method returning a dict | canonical JSON **text** |
+| `previous_hash` / `event_hash` | hex `str` | raw `bytes` |
+
+Only `sequence`, `previous_hash`, and `event_hash` are genuinely common, which
+is all `ChainedEvent` now claims. Export had been exercised solely against the
+node-mesh shape, so the first real authority export — the production Face ID
+lease — failed with `TypeError: 'str' object is not callable`, and would have
+failed again on serialization, since raw bytes are not representable in JSON.
+
+Hashes are normalized to hex at the boundary and the canonical JSON body is
+parsed back into structure, so a segment has one spelling whatever produced it.
+That is what lets a verifier compare links across chains at all.
+
+Verified live afterwards: authority chain `authority-production`, one event
+(`lease-issued`), sealed under GOVERNANCE, signed by the pinned key, and
+`AUTHENTIC` under offline verification.

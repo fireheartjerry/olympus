@@ -9,10 +9,13 @@ GENESIS_HASH = "0" * 64
 
 
 class ChainedEvent(Protocol):
-    """The shape every Olympus audit chain already exposes.
+    """The minimum every Olympus audit chain exposes: a sequence and two links.
 
-    Both the node-mesh chain and the authority chain link events the same way,
-    so export works over either without either one knowing about S3.
+    Only these three attributes are common. Beyond them the chains diverge —
+    the node-mesh log exposes ``body()`` and hex hashes, the authority log a
+    canonical JSON ``body`` string and raw bytes hashes — so ``_as_mapping``
+    and ``_hash_to_hex`` do the reconciling. Assuming more than this protocol
+    guarantees is what broke the first real authority export.
     """
 
     @property
