@@ -199,6 +199,25 @@ def create_production_app(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="request denied")
         return page
 
+    # Safari requests these the moment a page is added to the Home Screen. They
+    # were 404s, so the shortcut got a blank icon and the log filled with noise
+    # that looked like probing. Generated from the standard library rather than
+    # shipping a binary asset: a solid brand square is all an icon needs to be,
+    # and a committed PNG is one more file nobody would ever review.
+    @app.get("/apple-touch-icon.png")
+    @app.get("/apple-touch-icon-precomposed.png")
+    @app.get("/apple-touch-icon-120x120.png")
+    @app.get("/apple-touch-icon-120x120-precomposed.png")
+    @app.get("/favicon.ico")
+    async def icon(request: Request) -> Response:
+        if request.headers.get("host") != webauthn_host:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="request denied")
+        return Response(
+            content=_ICON_PNG,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
     @app.get("/health/live")
     async def health_live() -> dict[str, str]:
         return {"status": "ok"}
@@ -333,6 +352,8 @@ _MOBILE_PAGE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Olympus Authority</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
 body{font:16px system-ui;background:#090b10;color:#f6f7fb;max-width:34rem;margin:0 auto;padding:3rem 1.25rem}
 h1{font-size:2rem}button{display:block;width:100%;padding:1rem;margin:1rem 0;border:0;border-radius:.8rem;
@@ -374,3 +395,34 @@ const recover=()=>run(()=>ceremony('recovery',{request_id:crypto.randomUUID(),
 credential_id:localStorage.getItem('olympusCredentialId')||''}));
 </script>
 </html>"""
+
+
+def _solid_png(size: int, rgb: tuple[int, int, int]) -> bytes:
+    """A solid-colour PNG built with nothing but the standard library.
+
+    Small enough to be obviously correct, and it keeps a binary blob out of the
+    repository. PNG wants each scanline prefixed with a filter byte; zero means
+    "no filter", which is what makes a flat image compress to almost nothing.
+    """
+    import struct
+    import zlib
+
+    raw = b"".join(b"\x00" + bytes(rgb) * size for _ in range(size))
+
+    def chunk(tag: bytes, payload: bytes) -> bytes:
+        body = tag + payload
+        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body))
+
+    return b"".join(
+        (
+            b"\x89PNG\r\n\x1a\n",
+            chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)),
+            chunk(b"IDAT", zlib.compress(raw, 9)),
+            chunk(b"IEND", b""),
+        )
+    )
+
+
+# The accent colour the page already uses, so the Home Screen icon and the page
+# it opens are recognisably the same thing.
+_ICON_PNG = _solid_png(180, (0x6D, 0x5D, 0xFC))

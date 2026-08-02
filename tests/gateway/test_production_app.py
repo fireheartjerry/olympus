@@ -337,3 +337,35 @@ def test_the_closed_notice_states_configuration_not_credential_state() -> None:
     assert "Enrollment is closed" in page
     for leak in ("already registered", "passkey is registered", "a credential exists"):
         assert leak not in page
+
+
+def test_home_screen_icons_are_served_rather_than_404() -> None:
+    """Safari requests these on Add to Home Screen.
+
+    They were 404s, so the shortcut got a blank icon and the access log filled
+    with what looked like probing.
+    """
+    page = client()
+    for path in (
+        "/favicon.ico",
+        "/apple-touch-icon.png",
+        "/apple-touch-icon-precomposed.png",
+        "/apple-touch-icon-120x120.png",
+    ):
+        response = page.get(path, headers={"Host": "olympus.tail-example.ts.net"})
+        assert response.status_code == 200, path
+        assert response.content[:8] == b"\x89PNG\r\n\x1a\n", path
+
+
+def test_the_page_points_at_the_icons_it_serves() -> None:
+    page = client().get("/", headers={"Host": "olympus.tail-example.ts.net"}).text
+
+    assert 'rel="apple-touch-icon"' in page
+    assert "/apple-touch-icon.png" in page
+
+
+def test_icons_honour_the_same_host_boundary_as_everything_else() -> None:
+    # A new route must not become a hole in the boundary the rest enforces.
+    response = client().get("/favicon.ico", headers={"Host": "elsewhere.example"})
+
+    assert response.status_code == 403

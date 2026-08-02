@@ -19,6 +19,7 @@ from olympus.node_agent.file_read import (
     SUPPORTS_HANDLE_WALK,
     FileReadProvider,
     FileReadRefused,
+    _open_within_fallback,
     read_within_scope,
 )
 from olympus.nodes.errors import NodeMeshError
@@ -326,3 +327,66 @@ def test_concurrent_reads_are_independent(root: Path) -> None:
         return [result.status for result in results]
 
     assert asyncio.run(exercise()) == ["succeeded"] * 8
+
+
+# --- the no-dir_fd fallback ------------------------------------------------------
+#
+# This path runs on any platform without `openat` support. It is security
+# relevant and was previously unexercised: marking it `pragma: no cover` records
+# that the *platform* is not the test host, which is not the same as the code
+# being untestable. It is called directly here.
+
+
+def test_fallback_refuses_a_symlinked_final_component(root: Path, secret: Path) -> None:
+    (root / "innocent.txt").symlink_to(secret)
+
+    with pytest.raises(FileReadRefused, match="symbolic link"):
+        _open_within_fallback(root, root / "innocent.txt")
+
+
+def test_fallback_refuses_a_symlinked_directory_component(root: Path, tmp_path: Path) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "deep.txt").write_text("stolen\n", encoding="utf-8")
+    (root / "bridge").symlink_to(elsewhere)
+
+    with pytest.raises(FileReadRefused, match="symbolic link"):
+        _open_within_fallback(root, root / "bridge" / "deep.txt")
+
+
+def test_fallback_opens_a_genuine_file(root: Path) -> None:
+    handle = _open_within_fallback(root, root / "report.txt")
+    try:
+        assert os.read(handle, 64) == b"olympus report\n"
+    finally:
+        os.close(handle)
+
+
+def test_fallback_refuses_a_missing_file(root: Path) -> None:
+    with pytest.raises(FileReadRefused, match="cannot inspect"):
+        _open_within_fallback(root, root / "absent.txt")
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs need a POSIX host")
+def test_fallback_does_not_block_on_a_fifo(root: Path) -> None:
+    # The same denial of service the handle walk had. Both paths open with
+    # O_NONBLOCK; a regression in either one hangs a worker.
+    os.mkfifo(root / "pipe")
+    opened: dict[str, object] = {}
+
+    def attempt() -> None:
+        try:
+            opened["fd"] = _open_within_fallback(root, root / "pipe")
+        except Exception as exc:  # noqa: BLE001 - reported below
+            opened["error"] = exc
+
+    worker = threading.Thread(target=attempt, daemon=True)
+    worker.start()
+    worker.join(timeout=10)
+
+    assert not worker.is_alive(), "the fallback blocked on a FIFO; O_NONBLOCK regressed"
+    if "fd" in opened:
+        fd = opened["fd"]
+        assert isinstance(fd, int)
+        assert stat.S_ISFIFO(os.fstat(fd).st_mode)
+        os.close(fd)
