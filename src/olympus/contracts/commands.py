@@ -21,6 +21,8 @@ class TrustLabel(StrEnum):
 class JobStatus(StrEnum):
     ACCEPTED = "accepted"
     COMPILED = "compiled"
+    CANCELLED = "cancelled"
+    FROZEN = "frozen"
     FAILED = "failed"
 
 
@@ -42,6 +44,10 @@ class CommandEnvelope:
     authority_lease_id: str
     command_text: str
     received_at: str
+    guild_id: str = "development-guild"
+    channel_id: str = "development-channel"
+    interaction_id: str = "development-interaction"
+    authority_epoch: int = 1
     trust_label: TrustLabel = TrustLabel.USER_AUTHORIZED
     max_nodes: int = 32
     max_fan_out: int = 4
@@ -51,6 +57,9 @@ class CommandEnvelope:
         required = {
             "job_id": self.job_id,
             "commander_id": self.commander_id,
+            "guild_id": self.guild_id,
+            "channel_id": self.channel_id,
+            "interaction_id": self.interaction_id,
             "authority_lease_id": self.authority_lease_id,
             "command_text": self.command_text,
             "received_at": self.received_at,
@@ -72,6 +81,15 @@ class CommandEnvelope:
             raise TypeError("max_nodes must be an int")
         if type(self.max_fan_out) is not int:
             raise TypeError("max_fan_out must be an int")
+        if type(self.authority_epoch) is not int:
+            raise TypeError("authority_epoch must be an int")
+        if self.authority_epoch < 1:
+            raise ValueError("authority_epoch must be strictly positive")
+        if self.commander_id == "628053765181800448" and any(
+            value.startswith("development-")
+            for value in (self.guild_id, self.channel_id, self.interaction_id)
+        ):
+            raise ValueError("production commander requires literal Discord identity evidence")
         if not 1 <= self.max_nodes <= 128:
             raise ValueError("max_nodes must be between 1 and 128")
         if not 1 <= self.max_fan_out <= 16:

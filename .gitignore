@@ -14,3 +14,6 @@ dist/
 !.env.example
 outputs/
 work/
+
+# Runtime state: TLS private keys, logs. Never committed.
+/run/

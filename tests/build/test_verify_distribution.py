@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import io
 import tarfile
+import tomllib
 import zipfile
 from pathlib import Path
 
 import pytest
 
 from olympus.build.verify_distribution import DistributionError, verify_distribution
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _write_tar(path: Path, members: dict[str, bytes]) -> None:
@@ -71,3 +74,27 @@ def test_allows_expected_wheel_content(tmp_path: Path) -> None:
     _write_wheel(archive, {"olympus/__init__.py": b'__version__ = "0.1.0"'})
 
     verify_distribution(archive)
+
+
+def test_authority_dependencies_are_bounded_and_hypothesis_is_development_only() -> None:
+    with (PROJECT_ROOT / "pyproject.toml").open("rb") as pyproject_file:
+        pyproject = tomllib.load(pyproject_file)
+
+    requirements = pyproject["project"]["dependencies"]
+    for package in ("alembic", "asyncpg", "pynacl", "sqlalchemy[asyncio]", "webauthn"):
+        matching = [
+            requirement
+            for requirement in requirements
+            if requirement.lower().startswith(f"{package}>=")
+        ]
+        assert len(matching) == 1
+        assert ",<" in matching[0]
+
+    assert not any(requirement.lower().startswith("hypothesis") for requirement in requirements)
+    hypothesis = [
+        requirement
+        for requirement in pyproject["dependency-groups"]["dev"]
+        if requirement.lower().startswith("hypothesis>=")
+    ]
+    assert len(hypothesis) == 1
+    assert ",<" in hypothesis[0]
