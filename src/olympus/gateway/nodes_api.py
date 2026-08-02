@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from olympus.gateway.auth import require_operator
 from olympus.gateway.settings import GatewaySettings
 from olympus.gateway.ui import render_node_console
-from olympus.nodes.audit import AuditAction, AuditDecision, NodeAuditEvent
+from olympus.nodes.audit import AuditAction, AuditDecision, AuditDraft, NodeAuditEvent
 from olympus.nodes.capabilities import (
     CAPABILITY_CATALOG,
     CapabilityDescriptor,
@@ -600,13 +600,15 @@ def register_node_routes(
                 raise NodeMeshError(NodeReason.DISPATCH_FROZEN, "dispatch is frozen")
             workflow_id = await runtime.job_starter.start(job_request)
         except NodeMeshError as exc:
-            registry.audit.append(
-                actor=authority.commander_id,
-                action=AuditAction.DISPATCH_REFUSED,
-                decision=AuditDecision.DENY,
-                reason=exc.reason.value,
-                job_id=job_request.job_id,
-                payload={"capability": request.capability},
+            await registry.record_audit(
+                AuditDraft(
+                    actor=authority.commander_id,
+                    action=AuditAction.DISPATCH_REFUSED,
+                    decision=AuditDecision.DENY,
+                    reason=exc.reason.value,
+                    job_id=job_request.job_id,
+                    payload={"capability": request.capability},
+                )
             )
             raise _refuse(exc) from exc
         return JobAcceptedResponse(
@@ -698,11 +700,11 @@ def register_node_routes(
         limit: int = 100,
     ) -> AuditResponse:
         operator(commander_ids, authority_lease_ids, authorization)
-        events = registry.audit.events()
+        events = await registry.audit_events()
         selected = events[-max(min(limit, 500), 1) :]
         return AuditResponse(
-            chain_valid=registry.audit.verify(),
-            head=registry.audit.head(),
+            chain_valid=await registry.verify_audit(),
+            head=await registry.audit_head(),
             events=tuple(AuditEventResponse.of(event) for event in selected),
         )
 

@@ -63,7 +63,7 @@ async def test_the_control_plane_host_serves_a_bounded_inspection() -> None:
 
     assert outcome.status is NodeJobStatus.SUCCEEDED
     assert sorted(outcome.output["sections"]) == ["agent", "os"]
-    assert registry.audit.verify() is True
+    assert await registry.verify_audit() is True
 
 
 async def test_the_control_plane_host_holds_no_reserved_capability() -> None:

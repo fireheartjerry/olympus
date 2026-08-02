@@ -404,8 +404,8 @@ this slice makes no claim of off-host immutability.
 
 ### 11.1 Residual risks
 
-- The registry and audit chain are in-process and are lost on restart.
-- No off-host audit export yet.
+- No off-host audit export yet: the chain is durable in PostgreSQL and
+  tamper-evident, but a database writer can still rewrite it detectably.
 - Unfreeze is not yet bound to a Face ID assertion.
 - The operator credential is still the development shared token.
 - Transport identity relies on Tailscale plus the application-layer

@@ -29,6 +29,19 @@ class GatewaySettings(BaseSettings):
     node_attach_control_plane_host: bool = True
     node_control_plane_host_name: str = "vps-primary"
 
+    # PostgreSQL is the canonical owner of node-mesh state. When this is unset
+    # the mesh falls back to the in-process store, which loses every node,
+    # grant, revocation, freeze, and audit event on restart. The runtime says
+    # which store it chose at startup so that fallback is never silent.
+    database_url: SecretStr | None = None
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def blank_database_url_means_unset(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @field_validator("dev_command_token")
     @classmethod
     def validate_dev_command_token(cls, token: SecretStr) -> SecretStr:

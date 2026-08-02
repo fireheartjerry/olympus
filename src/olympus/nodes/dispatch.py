@@ -5,7 +5,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
-from olympus.nodes.audit import AuditAction, AuditDecision
+from olympus.nodes.audit import AuditAction, AuditDecision, AuditDraft
 from olympus.nodes.capabilities import require_dispatchable_capability
 from olympus.nodes.crypto import dedupe_key_for
 from olympus.nodes.errors import NodeMeshError, NodeReason
@@ -131,19 +131,21 @@ class NodeDispatchService:
             created_at=now,
             updated_at=now,
         )
-        self._remember(job)
-        self._registry.audit.append(
-            actor=request.authority.commander_id,
-            action=AuditAction.DISPATCH_ADMITTED,
-            decision=AuditDecision.ALLOW,
-            node_id=record.node_id,
-            job_id=request.job_id,
-            payload={
-                "capability": request.capability,
-                "dedupe_key": request.dedupe_key,
-                "attempt": request.attempt,
-                "authority_lease_id": request.authority.authority_lease_id,
-            },
+        await self._remember(job)
+        await self._registry.record_audit(
+            AuditDraft(
+                actor=request.authority.commander_id,
+                action=AuditAction.DISPATCH_ADMITTED,
+                decision=AuditDecision.ALLOW,
+                node_id=record.node_id,
+                job_id=request.job_id,
+                payload={
+                    "capability": request.capability,
+                    "dedupe_key": request.dedupe_key,
+                    "attempt": request.attempt,
+                    "authority_lease_id": request.authority.authority_lease_id,
+                },
+            )
         )
 
         try:
@@ -159,47 +161,53 @@ class NodeDispatchService:
                 on_progress=self._progress_recorder(request.job_id, on_progress),
             )
         except NodeMeshError as exc:
-            self._update(request.job_id, status=NodeJobStatus.FAILED, reason=exc.reason.value)
-            self._registry.audit.append(
-                actor=request.authority.commander_id,
-                action=AuditAction.DISPATCH_COMPLETED,
-                decision=AuditDecision.DENY,
-                reason=exc.reason.value,
-                node_id=record.node_id,
-                job_id=request.job_id,
+            await self._update(request.job_id, status=NodeJobStatus.FAILED, reason=exc.reason.value)
+            await self._registry.record_audit(
+                AuditDraft(
+                    actor=request.authority.commander_id,
+                    action=AuditAction.DISPATCH_COMPLETED,
+                    decision=AuditDecision.DENY,
+                    reason=exc.reason.value,
+                    node_id=record.node_id,
+                    job_id=request.job_id,
+                )
             )
             raise
         except asyncio.CancelledError:
-            self._update(
+            await self._update(
                 request.job_id,
                 status=NodeJobStatus.CANCELLED,
                 reason=NodeReason.JOB_CANCELLED.value,
             )
-            self._registry.audit.append(
-                actor=request.authority.commander_id,
-                action=AuditAction.DISPATCH_CANCELLED,
-                decision=AuditDecision.OBSERVE,
-                node_id=record.node_id,
-                job_id=request.job_id,
+            await self._registry.record_audit(
+                AuditDraft(
+                    actor=request.authority.commander_id,
+                    action=AuditAction.DISPATCH_CANCELLED,
+                    decision=AuditDecision.OBSERVE,
+                    node_id=record.node_id,
+                    job_id=request.job_id,
+                )
             )
             raise
 
-        self._update(request.job_id, status=outcome.status, reason=outcome.reason)
-        self._registry.audit.append(
-            actor=request.authority.commander_id,
-            action=AuditAction.DISPATCH_COMPLETED,
-            decision=AuditDecision.ALLOW
-            if outcome.status is NodeJobStatus.SUCCEEDED
-            else AuditDecision.OBSERVE,
-            reason=outcome.reason,
-            node_id=record.node_id,
-            job_id=request.job_id,
-            payload={
-                "status": outcome.status.value,
-                "replayed": outcome.replayed,
-                "output_truncated": outcome.output_truncated,
-                "trust_label": outcome.trust_label.value,
-            },
+        await self._update(request.job_id, status=outcome.status, reason=outcome.reason)
+        await self._registry.record_audit(
+            AuditDraft(
+                actor=request.authority.commander_id,
+                action=AuditAction.DISPATCH_COMPLETED,
+                decision=AuditDecision.ALLOW
+                if outcome.status is NodeJobStatus.SUCCEEDED
+                else AuditDecision.OBSERVE,
+                reason=outcome.reason,
+                node_id=record.node_id,
+                job_id=request.job_id,
+                payload={
+                    "status": outcome.status.value,
+                    "replayed": outcome.replayed,
+                    "output_truncated": outcome.output_truncated,
+                    "trust_label": outcome.trust_label.value,
+                },
+            )
         )
         return outcome
 
@@ -207,7 +215,7 @@ class NodeDispatchService:
         self, job_id: str, on_progress: ProgressCallback | None
     ) -> ProgressCallback:
         async def record(frame: JobProgressFrame) -> None:
-            self._update(
+            await self._update(
                 job_id,
                 status=NodeJobStatus.RUNNING,
                 message=redact_text(frame.message),
@@ -221,14 +229,16 @@ class NodeDispatchService:
         return record
 
     async def _refuse(self, request: NodeJobRequest, reason: NodeReason, *, node_id: str) -> None:
-        self._registry.audit.append(
-            actor=request.authority.commander_id,
-            action=AuditAction.DISPATCH_REFUSED,
-            decision=AuditDecision.DENY,
-            reason=reason.value,
-            node_id=node_id,
-            job_id=request.job_id,
-            payload={"capability": request.capability},
+        await self._registry.record_audit(
+            AuditDraft(
+                actor=request.authority.commander_id,
+                action=AuditAction.DISPATCH_REFUSED,
+                decision=AuditDecision.DENY,
+                reason=reason.value,
+                node_id=node_id,
+                job_id=request.job_id,
+                payload={"capability": request.capability},
+            )
         )
 
     async def cancel_job(self, job_id: str, *, reason: str, actor: str) -> bool:
@@ -238,12 +248,14 @@ class NodeDispatchService:
             if await session.cancel_job(job_id, reason=reason):
                 cancelled = True
         if cancelled:
-            self._registry.audit.append(
-                actor=actor,
-                action=AuditAction.DISPATCH_CANCELLED,
-                decision=AuditDecision.ALLOW,
-                reason=reason,
-                job_id=job_id,
+            await self._registry.record_audit(
+                AuditDraft(
+                    actor=actor,
+                    action=AuditAction.DISPATCH_CANCELLED,
+                    decision=AuditDecision.ALLOW,
+                    reason=reason,
+                    job_id=job_id,
+                )
             )
         return cancelled
 
@@ -265,7 +277,8 @@ class NodeDispatchService:
 
     # -- job bookkeeping ----------------------------------------------------
 
-    def _remember(self, job: NodeJobRecord) -> None:
+    async def _remember(self, job: NodeJobRecord) -> None:
+        await self._registry.upsert_job(job)
         self._jobs[job.job_id] = job
         self._jobs.move_to_end(job.job_id)
         while len(self._jobs) > MAX_RETAINED_JOB_RECORDS:
@@ -274,7 +287,7 @@ class NodeDispatchService:
                 break
             del self._jobs[oldest]
 
-    def _update(
+    async def _update(
         self,
         job_id: str,
         *,
@@ -286,7 +299,7 @@ class NodeDispatchService:
         job = self._jobs.get(job_id)
         if job is None:
             return
-        self._jobs[job_id] = replace(
+        updated = replace(
             job,
             status=status or job.status,
             reason=reason or job.reason,
@@ -294,6 +307,8 @@ class NodeDispatchService:
             progress_events=job.progress_events + (1 if bump_progress else 0),
             updated_at=self._clock(),
         )
+        self._jobs[job_id] = updated
+        await self._registry.upsert_job(updated)
 
     def jobs(self) -> tuple[NodeJobRecord, ...]:
         return tuple(reversed(list(self._jobs.values())))

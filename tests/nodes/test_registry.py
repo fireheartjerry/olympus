@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from olympus.nodes.audit import AuditAction, AuditDecision, NodeAuditLog
+from olympus.nodes.audit import AuditAction, AuditDecision
 from olympus.nodes.capabilities import SYSTEM_INSPECT
 from olympus.nodes.crypto import generate_node_keypair
 from olympus.nodes.errors import NodeMeshError, NodeReason
@@ -26,7 +26,6 @@ class Clock:
 
 def build_registry(clock: Clock) -> NodeRegistry:
     return NodeRegistry(
-        audit=NodeAuditLog(clock=clock),
         clock=clock,
         heartbeat_interval_seconds=5,
         heartbeat_expiry_seconds=15,
@@ -121,7 +120,7 @@ async def test_expired_enrollment_token_is_refused() -> None:
     assert failure.value.reason is NodeReason.ENROLLMENT_EXPIRED
     rejected = [
         event
-        for event in registry.audit.events()
+        for event in await registry.audit_events()
         if event.action is AuditAction.ENROLLMENT_REJECTED
     ]
     assert rejected and rejected[-1].decision is AuditDecision.DENY
@@ -251,7 +250,9 @@ async def test_heartbeat_expiry_takes_a_node_offline_and_is_audited() -> None:
     expired = await registry.sweep_expired_heartbeats()
     assert expired == (node_id,)
     assert (await registry.get_node(node_id)).session_id is None
-    assert any(event.action is AuditAction.HEARTBEAT_EXPIRED for event in registry.audit.events())
+    assert any(
+        event.action is AuditAction.HEARTBEAT_EXPIRED for event in await registry.audit_events()
+    )
 
 
 async def test_heartbeat_from_a_replaced_session_is_refused() -> None:

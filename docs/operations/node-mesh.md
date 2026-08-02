@@ -48,14 +48,19 @@ non-sensitive host counters (OS, CPU, memory, disk, uptime, agent uptime) via
 `SystemInspectProvider` in `src/olympus/node_agent/capabilities.py`. It opens
 no file, reads no environment variable, and spawns no subprocess.
 
-Durable state is also partial today. Temporal orchestrates the one-job
-workflow (`NodeJobWorkflow`), but the node registry, enrollment tokens, and
-the audit chain live in `InMemoryNodeRegistryStore` and `NodeAuditLog`
-(`src/olympus/nodes/registry.py`, `src/olympus/nodes/audit.py`) — both are
-process-local. A gateway restart forgets every enrolled node, every issued
-token, and every audit event. PostgreSQL is not installed and is not wired
-in; the code comments call this out explicitly ("PostgreSQL becomes the
-canonical owner in the persistence slice").
+Durable state is now owned by PostgreSQL. Temporal still orchestrates the
+one-job workflow (`NodeJobWorkflow`), and `PostgresNodeMeshStore`
+(`src/olympus/persistence/postgres_store.py`) owns the node registry,
+enrollment tokens, job metadata, the dispatch kill switch, and the audit
+chain. Set `OLYMPUS_DATABASE_URL` and the schema migrates on startup under an
+advisory lock. Every state change and the audit event describing it commit in
+one transaction, so neither can survive without the other.
+
+With `OLYMPUS_DATABASE_URL` unset the mesh runs on `InMemoryNodeMeshStore`,
+which is correct for tests and the offline demonstration and wrong for a
+deployed control plane: a restart forgets every enrolled node, every issued
+token, and every audit event. The node edge logs which store it chose at
+startup so that fallback is never silent.
 
 ## 2. Architecture at a glance
 
@@ -469,15 +474,16 @@ NodeReason.NODE_REVOKED.value)` in `nodes_api.py`).
 
 ### Residual risks (not yet defended)
 
-- **In-process state loss on restart.** `InMemoryNodeRegistryStore` and
-  `NodeAuditLog` hold everything in the gateway process's memory. A restart
-  or crash loses every enrolled node record, every issued/consumed
-  enrollment token, and the entire audit chain. PostgreSQL is not installed
-  on the VPS and is not wired into this slice.
 - **No off-host audit export.** The design's Section 16 calls for
-  "tamper-evident audit events exported off the VPS." This slice's audit
-  chain is tamper-*evident* (hash-linked, `verify_chain` recomputes every
-  link) but not exported anywhere; it disappears with the process.
+  "tamper-evident audit events exported off the VPS." The chain is
+  tamper-*evident* (hash-linked, `verify_chain` recomputes every link) and now
+  durable in PostgreSQL, but it is not exported anywhere. Anyone who can write
+  to that database can rewrite history; the chain makes the rewrite
+  detectable, not impossible. Off-host export is the next slice.
+- **Running without a database.** If `OLYMPUS_DATABASE_URL` is unset the mesh
+  silently-but-loudly degrades to process-local state. The startup log line is
+  the only guard; there is no hard refusal to run a production profile on the
+  in-process store.
 - **No signed policy bundle.** Capability grants and the freeze/quarantine
   controls are enforced in code, but there is no signed, versioned policy
   bundle of the kind Section 16.1 describes, and no separate verification

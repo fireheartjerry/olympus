@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 
 import uvicorn
 from fastapi import FastAPI
@@ -12,16 +13,35 @@ from olympus.activities.node_dispatch import NodeDispatchActivities
 from olympus.gateway.app import TemporalCommandStarter, create_app
 from olympus.gateway.nodes_api import NodeMeshRuntime
 from olympus.gateway.settings import GatewaySettings
-from olympus.nodes.audit import NodeAuditLog
 from olympus.nodes.crypto import generate_node_keypair, public_key_of
 from olympus.nodes.dispatch import NodeDispatchService, NodeJobRequest
 from olympus.nodes.errors import NodeMeshError, NodeReason
 from olympus.nodes.local_node import LocalNodeHandle, attach_local_node
 from olympus.nodes.registry import NodeRegistry
+from olympus.nodes.store import NodeMeshStore
 from olympus.workflows.command import CommandWorkflow
 from olympus.workflows.node_job import NODE_JOB_WORKFLOW_EXECUTION_TIMEOUT, NodeJobWorkflow
 
 HEARTBEAT_SWEEP_INTERVAL_SECONDS = 10
+
+_log = logging.getLogger(__name__)
+
+
+async def open_node_mesh_store(settings: GatewaySettings) -> tuple[NodeMeshStore | None, str]:
+    """Open the canonical store, or report that none is configured.
+
+    Returning ``None`` selects the in-process store. That is correct for tests
+    and the offline demonstration and wrong for a deployed control plane, so
+    the caller announces the choice rather than letting it pass unnoticed.
+    """
+    if settings.database_url is None:
+        return None, "in-process (volatile: state is lost on restart)"
+    # Imported lazily so a mesh running without PostgreSQL does not need the
+    # driver installed.
+    from olympus.persistence.postgres_store import PostgresNodeMeshStore
+
+    store = await PostgresNodeMeshStore.connect(settings.database_url.get_secret_value())
+    return store, "postgresql (canonical)"
 
 
 class TemporalNodeJobStarter:
@@ -65,12 +85,12 @@ def resolve_control_plane_keys(settings: GatewaySettings) -> tuple[str, str]:
 
 
 def build_node_mesh_runtime(
-    *, settings: GatewaySettings, client: Client
+    *, settings: GatewaySettings, client: Client, store: NodeMeshStore | None = None
 ) -> tuple[NodeMeshRuntime, NodeDispatchActivities]:
     """Assemble the mesh runtime and the activities that reach its live sessions."""
     private_key, public_key = resolve_control_plane_keys(settings)
     registry = NodeRegistry(
-        audit=NodeAuditLog(),
+        store=store,
         heartbeat_interval_seconds=settings.node_heartbeat_interval_seconds,
         heartbeat_expiry_seconds=settings.node_heartbeat_expiry_seconds,
         enrollment_ttl_seconds=settings.node_enrollment_ttl_seconds,
@@ -95,7 +115,7 @@ async def sweep_heartbeats_forever(registry: NodeRegistry) -> None:
 
 
 def build_edge_app(
-    settings: GatewaySettings, client: Client
+    settings: GatewaySettings, client: Client, store: NodeMeshStore | None = None
 ) -> tuple[FastAPI, NodeMeshRuntime, NodeDispatchActivities]:
     """Build the gateway with the node mesh mounted on it.
 
@@ -108,7 +128,7 @@ def build_edge_app(
             "the node-mesh runtime requires OLYMPUS_NODE_MESH_ENABLED=true; "
             "run olympus.runtime.gateway for the command-only gateway"
         )
-    runtime, activities = build_node_mesh_runtime(settings=settings, client=client)
+    runtime, activities = build_node_mesh_runtime(settings=settings, client=client, store=store)
     app = create_app(
         settings=settings,
         starter=TemporalCommandStarter(client=client, task_queue=settings.temporal_task_queue),
@@ -126,7 +146,24 @@ async def run() -> None:
     """
     settings = GatewaySettings()  # type: ignore[call-arg]  # required values come from environment
     client = await Client.connect(settings.temporal_address)
-    app, runtime, activities = build_edge_app(settings, client)
+    store, store_description = await open_node_mesh_store(settings)
+    _log.info("node-mesh canonical store: %s", store_description)
+    app, runtime, activities = build_edge_app(settings, client, store)
+
+    # No WebSocket survived the restart, so storage must stop claiming any
+    # session did before the mesh accepts traffic again.
+    recovery = await runtime.registry.recover_after_restart()
+    if recovery.changed:
+        _log.warning(
+            "restart recovery cleared %d session(s) and reconciled %d job(s)",
+            len(recovery.sessions_cleared),
+            len(recovery.jobs_reconciled),
+        )
+    if recovery.frozen:
+        _log.warning(
+            "dispatch is frozen at epoch %d; it survived the restart",
+            recovery.freeze_epoch,
+        )
 
     command_worker = Worker(
         client,

@@ -67,8 +67,15 @@ opens only the two fixed Linux counter files `/proc/meminfo` and
 `desktop.takeover@1` exist in the catalog as **reserved** and are refused at
 dispatch.
 
-The registry and audit chain are in-process today; PostgreSQL becomes their
-canonical owner in the persistence slice. Nothing here is deployed.
+PostgreSQL is the canonical owner of the registry, enrollment tokens, job
+metadata, and the audit chain: set `OLYMPUS_DATABASE_URL` and the schema
+migrates on startup. Every state change commits in the same transaction as the
+audit event describing it, and a restart clears sessions, reconciles orphaned
+jobs, and comes back still frozen and still revoked. With no database
+configured the mesh falls back to the in-process store, which loses all of
+that on restart; the node edge logs which store it chose so the fallback is
+never silent. See
+[the persistence design](docs/superpowers/specs/2026-08-01-node-mesh-persistence-design.md).
 
 ### Run the end-to-end demonstration
 

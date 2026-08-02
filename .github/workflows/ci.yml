@@ -16,6 +16,23 @@ jobs:
   python:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    services:
+      # The node-mesh persistence tests need a real database: atomicity,
+      # single-use enforcement under concurrency, and restart recovery cannot
+      # be demonstrated against an in-memory fake.
+      postgres:
+        image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+        env:
+          POSTGRES_USER: olympus
+          POSTGRES_PASSWORD: olympus-ci-not-a-production-secret
+          POSTGRES_DB: olympus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U olympus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       # v4.2.2
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -56,6 +73,8 @@ jobs:
       - name: Type-check in strict mode
         run: uv run mypy
       - name: Test with warnings as errors
+        env:
+          OLYMPUS_TEST_DATABASE_URL: postgresql://olympus:olympus-ci-not-a-production-secret@127.0.0.1:5432/olympus
         run: uv run pytest -W error
 
   helm:

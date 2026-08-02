@@ -546,10 +546,10 @@ async def test_dispatch_appends_an_unbroken_audit_chain() -> None:
     finally:
         await connection.aclose()
 
-    actions = [event.action.value for event in mesh.registry.audit.events()]
+    actions = [event.action.value for event in await mesh.registry.audit_events()]
     assert "dispatch-admitted" in actions
     assert "dispatch-completed" in actions
-    assert mesh.registry.audit.verify() is True
+    assert await mesh.registry.verify_audit() is True
 
 
 async def test_request_attempt_is_carried_into_the_dispatch_frame() -> None:
