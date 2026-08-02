@@ -166,3 +166,103 @@ a job is a scope that already shipped.
 - Every mutating capability (`fs.write`, `shell.powershell`, `agent.*`,
   `browser.session`, `desktop.*`) remains `RESERVED` and is refused at dispatch.
   A test asserts this independently of the enabled list.
+
+---
+
+# Node Capability `fs.write@1` — Approved, Atomic File Write
+
+**Status:** Implemented and verified; not granted to any node
+
+## 10. The line this crosses
+
+Every capability enabled before this one *observed*. This one changes a remote
+machine, and that changes what "correct" has to mean. A read capability that
+fails leaks; a write capability that fails can destroy, and a destroyed file has
+no "refused" state to fall back to.
+
+Three properties follow, and none of them are optional:
+
+**A partial write is not an acceptable failure.** A crash, a full disk, or a
+killed process must leave the target either untouched or completely replaced.
+Bytes go to a temporary file in the *same directory* (rename is only atomic
+within a filesystem), are `fsync`ed, and only then replace the target with
+`os.replace`. The directory itself is then `fsync`ed, because without that a
+crash can leave the rename visible while the bytes it points at are still in
+cache — a corrupt file that *looks* like a successful write.
+
+**The node verifies what it was asked to write.** The approval binds a content
+digest; the node recomputes it before anything is renamed into place. Writing
+bytes that do not match would mean the approval authorized one thing and the
+machine received another.
+
+**Creating and replacing are different acts.** A create-only write that quietly
+replaces an existing file is a destructive operation wearing a safe approval, so
+the mode is part of the approved digest and enforced on both sides.
+
+## 11. Approval is bound to the literal action
+
+"Jerry approved a file write" is worthless. The digest covers:
+
+```
+capability | node_id | path | content_sha256 | content_length | mode
+```
+
+Every field is load-bearing, and a test asserts that changing any one of them
+changes the digest. Without `node_id`, an approval for a staging machine writes
+to production. Without `content_sha256`, the payload can be swapped after
+approval. Without `mode`, a create-only approval silently becomes an overwrite.
+
+That is what makes a captured approval useless for anything but the exact write
+it named.
+
+**Verification is injected, not implemented here.** The registry decides *what*
+an approval must cover; signature, validity window, and single-use belong to the
+authorization engine. A registry that verified its own approvals would be
+checking its own work. A registry with **no** verifier configured refuses to
+dispatch a mutating capability at all — accepting an approval it cannot verify
+would make the gate decorative, which is worse than no gate because it looks
+like one.
+
+Scope is checked **before** the approval, so an approval is never spent deciding
+something the grant already forbids.
+
+## 12. What a write refuses
+
+| Attack | Refused by |
+|---|---|
+| Content not matching the approved digest | Node, before any write |
+| Create-only approval used to replace a file | Node — the mode is in the digest |
+| Overwrite when the grant forbids it | Node, `allow_overwrite` |
+| Writing over a symlink | Node — refused, target left intact |
+| Symlinked parent directory | Node, `O_NOFOLLOW` walk |
+| Writing over a directory, FIFO, or device | Node, `lstat` before writing |
+| Path outside the write root | Both, lexically then structurally |
+| The granted root itself as a file | Scope |
+| Content over the granted ceiling | Node |
+| Mutating dispatch with no approval | Control plane |
+| Mutating dispatch with no verifier configured | Control plane, fails closed |
+
+Read and write roots are **separate scopes**. A node trusted to read a
+directory is not thereby trusted to change it, and collapsing them would make
+every future read grant silently widen write authority.
+
+The temporary file is created with `O_CREAT|O_EXCL` relative to the verified
+directory handle and mode `0600`, so an attacker who guesses the name loses the
+race rather than winning it, and the result is not world-readable. A refused
+write leaves no `.partial` behind — asserted by comparing the directory listing
+before and after.
+
+## 13. Status
+
+- **586 tests pass** under `-W error` with real PostgreSQL; lint and strict
+  types clean.
+- `fs.write@1` is `ENABLED` in the catalog and **granted to no node**. Enabling
+  makes it grantable, not granted.
+- The old invariant "nothing dispatchable can mutate" was true until this slice.
+  It was replaced rather than deleted, because deleting a guard at the exact
+  moment it starts to matter is how guards are lost. The surviving invariants:
+  **every mutating capability requires approval** (asserted across the whole
+  catalog, reserved or not, so one cannot be enabled later with the flag quietly
+  false), and **nothing enabled reaches beyond the node it runs on**.
+- `shell.powershell`, `agent.claude`, `agent.codex`, `browser.session`, and
+  `desktop.*` remain `RESERVED`.

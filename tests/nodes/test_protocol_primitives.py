@@ -14,6 +14,7 @@ from olympus.nodes.capabilities import (
     CAPABILITY_CATALOG,
     ENABLED_CAPABILITIES,
     FILE_READ,
+    FILE_WRITE,
     SYSTEM_INSPECT,
     CapabilityRisk,
     CapabilityStatus,
@@ -54,27 +55,53 @@ def test_only_bounded_read_only_capabilities_are_dispatchable_today() -> None:
     capability is a deliberate edit to this test and not a silent side effect
     of adding a catalog entry.
     """
-    assert ENABLED_CAPABILITIES == (FILE_READ.name, SYSTEM_INSPECT.name)
-    assert require_dispatchable_capability(SYSTEM_INSPECT.name) is SYSTEM_INSPECT
-    assert require_dispatchable_capability(FILE_READ.name) is FILE_READ
+    assert ENABLED_CAPABILITIES == (FILE_READ.name, FILE_WRITE.name, SYSTEM_INSPECT.name)
+    for descriptor in (SYSTEM_INSPECT, FILE_READ, FILE_WRITE):
+        assert require_dispatchable_capability(descriptor.name) is descriptor
 
 
-def test_nothing_dispatchable_can_mutate_a_node() -> None:
-    """The invariant that actually matters, independent of the list above.
+def test_nothing_dispatchable_can_mutate_without_an_approval() -> None:
+    """The invariant that survives fs.write being enabled.
 
-    Every enabled capability observes. The moment one of them can change a
-    node, that is a different slice with a different gate, and this fails.
+    "Nothing enabled mutates" was true until the first mutating capability, and
+    deleting the guard at that point would have removed the check exactly when
+    it started to matter. The property that still holds — and that has to — is
+    that changing a node is never unapproved.
     """
     for name in ENABLED_CAPABILITIES:
         descriptor = CAPABILITY_CATALOG[name]
-        assert descriptor.mutating is False, f"{name} mutates but is enabled"
-        assert descriptor.risk is CapabilityRisk.OBSERVE, f"{name} is enabled above OBSERVE"
+        if descriptor.mutating:
+            assert descriptor.requires_approval is True, f"{name} mutates without approval"
+        else:
+            assert descriptor.risk is CapabilityRisk.OBSERVE, f"{name} observes above OBSERVE"
 
 
-def test_every_mutating_capability_is_still_reserved() -> None:
+def test_no_enabled_capability_reaches_beyond_the_node_it_runs_on() -> None:
+    # MUTATE_EXTERNAL and PRIVILEGED reach past the machine. Nothing enabled
+    # may do that yet, whatever its approval status.
+    for name in ENABLED_CAPABILITIES:
+        assert CAPABILITY_CATALOG[name].risk in (
+            CapabilityRisk.OBSERVE,
+            CapabilityRisk.MUTATE_LOCAL,
+        ), f"{name} is enabled with a risk beyond the local node"
+
+
+def test_every_capability_that_mutates_requires_approval() -> None:
+    # Across the whole catalog, reserved or not, so a capability cannot be
+    # enabled later while its approval flag is quietly false.
     for name, descriptor in CAPABILITY_CATALOG.items():
         if descriptor.mutating:
-            assert descriptor.status is CapabilityStatus.RESERVED, f"{name} is mutating and enabled"
+            assert descriptor.requires_approval is True, f"{name} mutates without approval"
+
+
+def test_the_dangerous_capabilities_are_still_reserved() -> None:
+    for name in (
+        "shell.powershell@1",
+        "agent.claude@1",
+        "agent.codex@1",
+        "browser.session@1",
+    ):
+        assert CAPABILITY_CATALOG[name].status is CapabilityStatus.RESERVED, name
 
 
 RESERVED_NAMES = [

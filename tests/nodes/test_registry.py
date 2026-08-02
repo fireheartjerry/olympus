@@ -8,6 +8,7 @@ from olympus.nodes.crypto import generate_node_keypair
 from olympus.nodes.errors import NodeMeshError, NodeReason
 from olympus.nodes.models import NodeHealthSnapshot, NodeKind, NodePlatform, NodeState
 from olympus.nodes.registry import NodeDescription, NodeRegistry
+from olympus.nodes.scopes import WriteMode, file_write_action_digest
 from olympus.nodes.store import InMemoryNodeMeshStore
 
 RESERVED_CAPABILITY = "shell.powershell@1"
@@ -608,3 +609,208 @@ async def test_selection_skips_nodes_whose_scope_excludes_the_request() -> None:
         capability=FILE_READ_NAME, parameters={"path": "C:\\olympus\\share\\a.txt"}
     )
     assert chosen.node_id == node_id
+
+
+# --- the approval gate on a mutating capability ------------------------------------
+
+FILE_WRITE_NAME = "fs.write@1"
+WRITE_SCOPE = {
+    FILE_WRITE_NAME: {"roots": ["C:\\olympus\\share"], "max_bytes": 4096, "allow_overwrite": False}
+}
+
+
+class RecordingVerifier:
+    """Stands in for the authorization engine and records what it was asked."""
+
+    def __init__(self, *, accept: bool = True) -> None:
+        self.accept = accept
+        self.seen: list[str] = []
+
+    def verify(self, *, action_digest: str, approval: object, now) -> None:
+        self.seen.append(action_digest)
+        if not self.accept:
+            raise NodeMeshError(NodeReason.CAPABILITY_NOT_GRANTED, "approval rejected")
+
+
+async def enroll_with_file_write(registry: NodeRegistry) -> str:
+    issued = await registry.issue_enrollment_token(
+        node_name="jerry-windows",
+        kind=NodeKind.WORKSTATION,
+        platform=NodePlatform.WINDOWS,
+        granted_capabilities=[SYSTEM_INSPECT.name, FILE_WRITE_NAME],
+        issued_by="local-jerry",
+        capability_scopes=WRITE_SCOPE,
+    )
+    keys = generate_node_keypair()
+    record = await registry.redeem_enrollment_token(
+        presented=issued.presented,
+        description=description(capabilities=(SYSTEM_INSPECT.name, FILE_WRITE_NAME)),
+        public_key=keys.public_key,
+    )
+    await registry.attach_session(
+        node_id=record.node_id,
+        session_id="nsx-write",
+        declared_capabilities=[SYSTEM_INSPECT.name, FILE_WRITE_NAME],
+        agent_version="0.1.0",
+        architecture="AMD64",
+    )
+    return record.node_id
+
+
+WRITE_PARAMS = {
+    "path": "C:\\olympus\\share\\config.json",
+    "content_sha256": "a" * 64,
+    "content_length": 12,
+    "mode": "create",
+}
+
+
+async def test_a_mutating_capability_is_refused_without_an_approval() -> None:
+    clock = Clock()
+    registry = NodeRegistry(
+        clock=clock,
+        heartbeat_interval_seconds=5,
+        heartbeat_expiry_seconds=15,
+        approvals=RecordingVerifier(),
+    )
+    node_id = await enroll_with_file_write(registry)
+
+    with pytest.raises(NodeMeshError) as caught:
+        await registry.assert_dispatchable(
+            node_id=node_id, capability=FILE_WRITE_NAME, parameters=WRITE_PARAMS
+        )
+    assert caught.value.reason is NodeReason.CAPABILITY_NOT_GRANTED
+
+
+async def test_a_registry_without_a_verifier_refuses_to_dispatch_a_mutation() -> None:
+    """Fail closed.
+
+    A registry that accepted an approval it cannot verify would make the gate
+    decorative — worse than no gate, because it looks like one.
+    """
+    clock = Clock()
+    registry = build_registry(clock)  # no verifier configured
+    node_id = await enroll_with_file_write(registry)
+
+    with pytest.raises(NodeMeshError, match="no approval verifier"):
+        await registry.assert_dispatchable(
+            node_id=node_id,
+            capability=FILE_WRITE_NAME,
+            parameters=WRITE_PARAMS,
+            approval=object(),
+        )
+
+
+async def test_an_approved_mutation_is_admitted_and_the_digest_binds_the_action() -> None:
+    clock = Clock()
+    verifier = RecordingVerifier()
+    registry = NodeRegistry(
+        clock=clock,
+        heartbeat_interval_seconds=5,
+        heartbeat_expiry_seconds=15,
+        approvals=verifier,
+    )
+    node_id = await enroll_with_file_write(registry)
+
+    await registry.assert_dispatchable(
+        node_id=node_id,
+        capability=FILE_WRITE_NAME,
+        parameters=WRITE_PARAMS,
+        approval=object(),
+    )
+
+    expected = file_write_action_digest(
+        node_id=node_id,
+        path=WRITE_PARAMS["path"],
+        content_sha256=WRITE_PARAMS["content_sha256"],
+        content_length=WRITE_PARAMS["content_length"],
+        mode=WriteMode.CREATE,
+    )
+    assert verifier.seen == [expected]
+
+
+async def test_changing_the_payload_changes_the_digest_the_approval_must_match() -> None:
+    """A captured approval must not survive a swapped payload."""
+    clock = Clock()
+    verifier = RecordingVerifier()
+    registry = NodeRegistry(
+        clock=clock,
+        heartbeat_interval_seconds=5,
+        heartbeat_expiry_seconds=15,
+        approvals=verifier,
+    )
+    node_id = await enroll_with_file_write(registry)
+
+    await registry.assert_dispatchable(
+        node_id=node_id, capability=FILE_WRITE_NAME, parameters=WRITE_PARAMS, approval=object()
+    )
+    await registry.assert_dispatchable(
+        node_id=node_id,
+        capability=FILE_WRITE_NAME,
+        parameters={**WRITE_PARAMS, "content_sha256": "b" * 64},
+        approval=object(),
+    )
+
+    assert verifier.seen[0] != verifier.seen[1]
+
+
+async def test_a_rejected_approval_refuses_the_dispatch() -> None:
+    clock = Clock()
+    registry = NodeRegistry(
+        clock=clock,
+        heartbeat_interval_seconds=5,
+        heartbeat_expiry_seconds=15,
+        approvals=RecordingVerifier(accept=False),
+    )
+    node_id = await enroll_with_file_write(registry)
+
+    with pytest.raises(NodeMeshError):
+        await registry.assert_dispatchable(
+            node_id=node_id,
+            capability=FILE_WRITE_NAME,
+            parameters=WRITE_PARAMS,
+            approval=object(),
+        )
+
+
+async def test_a_write_outside_the_scope_is_refused_before_the_approval_is_consulted() -> None:
+    # Scope first: an approval should never be spent deciding something the
+    # grant already forbids.
+    clock = Clock()
+    verifier = RecordingVerifier()
+    registry = NodeRegistry(
+        clock=clock,
+        heartbeat_interval_seconds=5,
+        heartbeat_expiry_seconds=15,
+        approvals=verifier,
+    )
+    node_id = await enroll_with_file_write(registry)
+
+    with pytest.raises(NodeMeshError):
+        await registry.assert_dispatchable(
+            node_id=node_id,
+            capability=FILE_WRITE_NAME,
+            parameters={**WRITE_PARAMS, "path": "C:\\Windows\\System32\\drivers\\etc\\hosts"},
+            approval=object(),
+        )
+    assert verifier.seen == []
+
+
+async def test_a_non_mutating_capability_needs_no_approval() -> None:
+    clock = Clock()
+    verifier = RecordingVerifier()
+    registry = NodeRegistry(
+        clock=clock,
+        heartbeat_interval_seconds=5,
+        heartbeat_expiry_seconds=15,
+        approvals=verifier,
+    )
+    node_id = await enroll_with_file_read(registry)
+    await online(registry, node_id)
+
+    await registry.assert_dispatchable(
+        node_id=node_id,
+        capability=FILE_READ_NAME,
+        parameters={"path": "C:\\olympus\\share\\a.txt"},
+    )
+    assert verifier.seen == []

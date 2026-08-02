@@ -41,9 +41,14 @@ from olympus.nodes.protocol import (
 )
 from olympus.nodes.scopes import (
     FILE_READ,
+    FILE_WRITE,
+    ApprovalVerifier,
     FileReadScope,
+    FileWriteScope,
     assert_scoped_dispatch,
+    expected_action_digest,
     parse_scopes,
+    requires_approval,
     requires_scope,
 )
 from olympus.nodes.store import InMemoryNodeMeshStore, NodeMeshStore, NodeMeshTransaction
@@ -117,6 +122,7 @@ class NodeRegistry:
         self,
         *,
         store: NodeMeshStore | None = None,
+        approvals: ApprovalVerifier | None = None,
         clock: Callable[[], datetime] = utc_now,
         heartbeat_interval_seconds: int = DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
         heartbeat_expiry_seconds: int = DEFAULT_HEARTBEAT_EXPIRY_SECONDS,
@@ -125,6 +131,9 @@ class NodeRegistry:
         if heartbeat_expiry_seconds <= heartbeat_interval_seconds:
             raise ValueError("heartbeat expiry must exceed the heartbeat interval")
         self._store: NodeMeshStore = store or InMemoryNodeMeshStore(clock=clock)
+        # Absent by default. A mesh that never dispatches a mutating capability
+        # needs no verifier, and one that does refuses until it is given one.
+        self._approvals: ApprovalVerifier | None = approvals
         self._clock = clock
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
         self.heartbeat_expiry_seconds = heartbeat_expiry_seconds
@@ -774,8 +783,9 @@ class NodeRegistry:
         node_id: str,
         capability: str,
         parameters: Mapping[str, Any] | None = None,
+        approval: Any | None = None,
     ) -> NodeRecord:
-        """Refuse dispatch unless the mesh, the node, the grant, and the scope permit it."""
+        """Refuse dispatch unless mesh, node, grant, scope, and approval all permit it."""
         require_dispatchable_capability(capability)
         async with self._store.transaction() as tx:
             control = await tx.get_dispatch_control()
@@ -803,11 +813,48 @@ class NodeRegistry:
             scopes=self.scopes_of(record),
             parameters=parameters or {},
         )
+        # A mutating capability is gated on an approval bound to this literal
+        # action -- this node, this path, these bytes, this mode. "Approved to
+        # write files" would be reusable against any target; the digest is what
+        # makes a captured approval useless for anything but the write it named.
+        if requires_approval(capability):
+            self._assert_approved(
+                capability=capability,
+                node_id=node_id,
+                parameters=parameters or {},
+                approval=approval,
+            )
         if state is not NodeState.ONLINE:
             raise NodeMeshError(NodeReason.NODE_OFFLINE, "node is not online")
         return record
 
-    def scopes_of(self, record: NodeRecord) -> dict[str, FileReadScope]:
+    def _assert_approved(
+        self,
+        *,
+        capability: str,
+        node_id: str,
+        parameters: Mapping[str, Any],
+        approval: Any | None,
+    ) -> None:
+        if approval is None:
+            raise NodeMeshError(
+                NodeReason.CAPABILITY_NOT_GRANTED,
+                f"{capability} changes the node and requires an approval bound to this action",
+            )
+        if self._approvals is None:
+            # Fail closed. A registry with no verifier cannot establish that an
+            # approval is genuine, and accepting one on its own say-so would
+            # make the whole gate decorative.
+            raise NodeMeshError(
+                NodeReason.CAPABILITY_NOT_GRANTED,
+                "no approval verifier is configured; refusing to dispatch a mutating capability",
+            )
+        digest = expected_action_digest(
+            capability=capability, node_id=node_id, parameters=parameters
+        )
+        self._approvals.verify(action_digest=digest, approval=approval, now=self._clock())
+
+    def scopes_of(self, record: NodeRecord) -> dict[str, Any]:
         """Typed scopes for one node, parsed against that node's own platform."""
         return parse_scopes(_decode_scopes(record.capability_scopes), platform=record.platform)
 
@@ -901,11 +948,11 @@ def _encode_scopes(
 
     encoded: list[tuple[str, str]] = []
     for capability, payload in scopes.items():
-        if capability == FILE_READ:
+        if capability in (FILE_READ, FILE_WRITE):
             # Round-tripped through the typed scope so a malformed root, an
             # over-large ceiling, or "/" is rejected here rather than stored.
-            scope = FileReadScope.from_mapping(payload, platform=platform)
-            body = scope.to_mapping()
+            builder = FileReadScope if capability == FILE_READ else FileWriteScope
+            body = builder.from_mapping(payload, platform=platform).to_mapping()
         else:
             raise NodeMeshError(
                 NodeReason.CAPABILITY_NOT_GRANTED,

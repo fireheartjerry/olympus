@@ -26,10 +26,14 @@ filesystem as it really is.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
+from enum import StrEnum
 from pathlib import PurePath, PureWindowsPath
-from typing import Any
+from typing import Any, Protocol
 
 from olympus.nodes.errors import NodeMeshError, NodeReason
 from olympus.nodes.models import NodePlatform
@@ -215,26 +219,29 @@ class FileReadScope:
         )
 
 
-def parse_scopes(
-    payload: Mapping[str, Any] | None, *, platform: NodePlatform
-) -> dict[str, FileReadScope]:
+def parse_scopes(payload: Mapping[str, Any] | None, *, platform: NodePlatform) -> dict[str, Any]:
     """Build the typed scopes for one node from its stored grant."""
     if not payload:
         return {}
-    scopes: dict[str, FileReadScope] = {}
+    scopes: dict[str, Any] = {}
     for capability, raw in payload.items():
-        if capability == FILE_READ:
+        if capability in (FILE_READ, FILE_WRITE):
             if not isinstance(raw, Mapping):
                 raise ScopeError(
                     NodeReason.CAPABILITY_PARAMETERS_INVALID,
                     f"scope for {capability} must be an object",
                 )
-            scopes[capability] = FileReadScope.from_mapping(raw, platform=platform)
+            builder = FileReadScope if capability == FILE_READ else FileWriteScope
+            scopes[capability] = builder.from_mapping(raw, platform=platform)
         # Unknown capability scopes are ignored rather than rejected so an older
         # control plane can read a record written by a newer one. They cannot
         # grant anything: a capability with no enforcement path is refused by
         # `assert_scoped` below.
     return scopes
+
+
+def _write_scope_check(scope: Any, parameters: Mapping[str, Any]) -> None:
+    scope.resolve(parameters["path"])
 
 
 def requires_scope(capability: str) -> bool:
@@ -244,13 +251,13 @@ def requires_scope(capability: str) -> bool:
     be listed here the moment it is defined, so that forgetting to plumb its
     scope refuses dispatch rather than granting everything.
     """
-    return capability == FILE_READ
+    return capability in (FILE_READ, FILE_WRITE)
 
 
 def assert_scoped_dispatch(
     *,
     capability: str,
-    scopes: Mapping[str, FileReadScope],
+    scopes: Mapping[str, Any],
     parameters: Mapping[str, Any],
 ) -> None:
     """Refuse a dispatch whose parameters fall outside the node's grant.
@@ -271,7 +278,7 @@ def assert_scoped_dispatch(
     raw_path = parameters.get("path")
     if not isinstance(raw_path, str):
         raise ScopeError(
-            NodeReason.CAPABILITY_PARAMETERS_INVALID, "fs.read requires a 'path' string"
+            NodeReason.CAPABILITY_PARAMETERS_INVALID, f"{capability} requires a 'path' string"
         )
     scope.resolve(raw_path)
 
@@ -288,3 +295,197 @@ def assert_scoped_dispatch(
                 NodeReason.CAPABILITY_PARAMETERS_INVALID,
                 f"max_bytes must be between 1 and the granted {scope.max_bytes}",
             )
+
+
+FILE_WRITE = "fs.write@1"
+
+# A write carries its bytes in the dispatch payload, so the ceiling bounds the
+# message as well as the file. Lower than the read ceiling deliberately: a
+# capability that changes a machine should move small, reviewable payloads.
+MAX_FILE_WRITE_BYTES = 262_144
+
+
+class WriteMode(StrEnum):
+    """Whether an approved write may replace something that already exists."""
+
+    CREATE = "create"
+    OVERWRITE = "overwrite"
+
+
+@dataclass(frozen=True)
+class FileWriteScope:
+    """The bound on one node's ``fs.write@1`` grant.
+
+    Separate from the read scope on purpose. A node trusted to read a directory
+    is not thereby trusted to change it, and collapsing the two would make
+    every future read grant silently widen write authority.
+    """
+
+    roots: tuple[str, ...]
+    max_bytes: int = MAX_FILE_WRITE_BYTES
+    allow_overwrite: bool = False
+    platform: NodePlatform = NodePlatform.LINUX
+
+    def __post_init__(self) -> None:
+        if not self.roots:
+            raise ScopeError(
+                NodeReason.CAPABILITY_PARAMETERS_INVALID,
+                "fs.write requires at least one allowed root",
+            )
+        if self.max_bytes < 1 or self.max_bytes > MAX_FILE_WRITE_BYTES:
+            raise ScopeError(
+                NodeReason.CAPABILITY_PARAMETERS_INVALID,
+                f"max_bytes must be between 1 and {MAX_FILE_WRITE_BYTES}",
+            )
+        for root in self.roots:
+            normalized = normalize_path(root, platform=self.platform)
+            if len(normalized.parts) <= 1:
+                raise ScopeError(
+                    NodeReason.CAPABILITY_PARAMETERS_INVALID,
+                    f"{root!r} is the filesystem root; scope a real directory instead",
+                )
+
+    @property
+    def normalized_roots(self) -> tuple[PurePath, ...]:
+        return tuple(normalize_path(root, platform=self.platform) for root in self.roots)
+
+    def resolve(self, raw_path: str) -> PurePath:
+        candidate = normalize_path(raw_path, platform=self.platform)
+        for root in self.normalized_roots:
+            if is_within(root, candidate, platform=self.platform):
+                if candidate.parts == root.parts:
+                    raise ScopeError(
+                        NodeReason.CAPABILITY_PARAMETERS_INVALID,
+                        "the granted root is a directory and cannot be written as a file",
+                    )
+                return candidate
+        raise ScopeError(
+            NodeReason.CAPABILITY_NOT_GRANTED,
+            f"{raw_path!r} is outside every granted write root for this node",
+        )
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "roots": list(self.roots),
+            "max_bytes": self.max_bytes,
+            "allow_overwrite": self.allow_overwrite,
+        }
+
+    @classmethod
+    def from_mapping(
+        cls, payload: Mapping[str, Any], *, platform: NodePlatform = NodePlatform.LINUX
+    ) -> FileWriteScope:
+        roots = payload.get("roots")
+        if not isinstance(roots, Sequence) or isinstance(roots, str) or not roots:
+            raise ScopeError(
+                NodeReason.CAPABILITY_PARAMETERS_INVALID,
+                "fs.write scope must list at least one root",
+            )
+        try:
+            max_bytes = int(payload.get("max_bytes", MAX_FILE_WRITE_BYTES))
+        except (TypeError, ValueError) as exc:
+            raise ScopeError(
+                NodeReason.CAPABILITY_PARAMETERS_INVALID, "max_bytes must be an integer"
+            ) from exc
+        return cls(
+            roots=tuple(str(root) for root in roots),
+            max_bytes=max_bytes,
+            allow_overwrite=bool(payload.get("allow_overwrite", False)),
+            platform=platform,
+        )
+
+
+def file_write_action_digest(
+    *,
+    node_id: str,
+    path: str,
+    content_sha256: str,
+    content_length: int,
+    mode: WriteMode,
+) -> str:
+    """The digest an approval must carry to authorize exactly this write.
+
+    Approval is bound to the literal action, not to the capability. "Jerry
+    approved a file write" is worthless; "Jerry approved *these bytes* to *this
+    path* on *this node*" is the claim worth having, and it is the only one an
+    attacker who holds a captured approval cannot repurpose.
+
+    Every field is load-bearing. Without ``node_id`` an approval for a staging
+    machine writes to production. Without ``content_sha256`` the payload can be
+    swapped after approval. Without ``mode`` a create-only approval silently
+    becomes an overwrite.
+    """
+    if len(content_sha256) != 64:
+        raise ScopeError(
+            NodeReason.CAPABILITY_PARAMETERS_INVALID,
+            "content_sha256 must be a SHA-256 hex digest",
+        )
+    canonical = json.dumps(
+        {
+            "capability": FILE_WRITE,
+            "content_length": int(content_length),
+            "content_sha256": content_sha256.lower(),
+            "mode": mode.value,
+            "node_id": node_id,
+            "path": path,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+class ApprovalVerifier(Protocol):
+    """Verifies an approval's signature, validity window, and single use.
+
+    Injected rather than implemented here. The node registry decides *what* an
+    approval must cover; it has no business owning signature verification, and
+    a registry that verified its own approvals would be checking its own work.
+    """
+
+    def verify(self, *, action_digest: str, approval: Any, now: datetime) -> None: ...
+
+
+def requires_approval(capability: str) -> bool:
+    """Whether dispatching this capability needs a payload-bound approval.
+
+    Read from the catalog rather than a second list here. Two lists disagree
+    eventually, and the direction they disagree in is the dangerous one.
+    """
+    from olympus.nodes.capabilities import CAPABILITY_CATALOG
+
+    descriptor = CAPABILITY_CATALOG.get(capability)
+    return bool(descriptor and descriptor.requires_approval)
+
+
+def expected_action_digest(*, capability: str, node_id: str, parameters: Mapping[str, Any]) -> str:
+    """The digest an approval must carry for this exact dispatch."""
+    if capability != FILE_WRITE:
+        raise ScopeError(
+            NodeReason.CAPABILITY_NOT_GRANTED,
+            f"{capability} requires approval but has no action digest defined; "
+            "refusing rather than accepting an approval that binds nothing",
+        )
+    raw_path = parameters.get("path")
+    content_sha256 = parameters.get("content_sha256")
+    content_length = parameters.get("content_length")
+    if not isinstance(raw_path, str) or not isinstance(content_sha256, str):
+        raise ScopeError(
+            NodeReason.CAPABILITY_PARAMETERS_INVALID,
+            "fs.write requires 'path' and 'content_sha256'",
+        )
+    try:
+        mode = WriteMode(str(parameters.get("mode", WriteMode.CREATE.value)))
+        length = int(content_length)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ScopeError(
+            NodeReason.CAPABILITY_PARAMETERS_INVALID,
+            "fs.write requires a valid 'mode' and integer 'content_length'",
+        ) from exc
+    return file_write_action_digest(
+        node_id=node_id,
+        path=raw_path,
+        content_sha256=content_sha256,
+        content_length=length,
+        mode=mode,
+    )

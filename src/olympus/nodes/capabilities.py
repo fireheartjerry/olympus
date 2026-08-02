@@ -117,6 +117,23 @@ FILE_READ = _descriptor(
     max_output_bytes=1_048_576,
 )
 
+FILE_WRITE = _descriptor(
+    "fs.write",
+    1,
+    "Bounded file write",
+    "Atomically write one regular file into a directory this node was "
+    "explicitly granted for writing. Requires an approval bound to the exact "
+    "node, path, content digest, and create-or-overwrite mode; symbolic links "
+    "are never written through or over, and a partial write is never left "
+    "behind. Writes nothing the approval does not name.",
+    CapabilityStatus.ENABLED,
+    CapabilityRisk.MUTATE_LOCAL,
+    mutating=True,
+    requires_approval=True,
+    max_runtime_seconds=30,
+    max_output_bytes=16_384,
+)
+
 _RESERVED = (
     _descriptor(
         "shell.powershell",
@@ -125,16 +142,6 @@ _RESERVED = (
         "Reserved for the allowlisted PowerShell slice. Not dispatchable.",
         CapabilityStatus.RESERVED,
         CapabilityRisk.PRIVILEGED,
-        mutating=True,
-        requires_approval=True,
-    ),
-    _descriptor(
-        "fs.write",
-        1,
-        "Bounded file write",
-        "Reserved for the node file-access slice. Not dispatchable.",
-        CapabilityStatus.RESERVED,
-        CapabilityRisk.MUTATE_LOCAL,
         mutating=True,
         requires_approval=True,
     ),
@@ -192,7 +199,10 @@ _RESERVED = (
 )
 
 CAPABILITY_CATALOG: Mapping[str, CapabilityDescriptor] = MappingProxyType(
-    {descriptor.name: descriptor for descriptor in (SYSTEM_INSPECT, FILE_READ, *_RESERVED)}
+    {
+        descriptor.name: descriptor
+        for descriptor in (SYSTEM_INSPECT, FILE_READ, FILE_WRITE, *_RESERVED)
+    }
 )
 
 ENABLED_CAPABILITIES: tuple[str, ...] = tuple(
