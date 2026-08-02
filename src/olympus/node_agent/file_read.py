@@ -309,3 +309,138 @@ def _containing_root(scope: FileReadScope, target: PurePath) -> PurePath:
     # scope.resolve() already established containment, so reaching here means
     # the two disagree — a bug, not a refusal to report to the caller.
     raise AssertionError("resolved path is not under any granted root")
+
+
+# Bounded so a directory with a million entries produces a refusal-shaped
+# truncation rather than an unbounded frame. Truncation is always reported.
+MAX_LIST_ENTRIES = 1000
+
+
+@dataclass(frozen=True)
+class DirectoryListing:
+    path: str
+    entries: tuple[dict[str, Any], ...]
+    truncated: bool
+
+
+def list_within_scope(
+    scope: FileReadScope, raw_path: str, *, max_entries: int = MAX_LIST_ENTRIES
+) -> DirectoryListing:
+    """List one directory's immediate entries, following nothing.
+
+    Entry types are reported with ``follow_symlinks=False`` throughout. A
+    listing that resolved links would describe files outside the granted root
+    while appearing to describe what is inside it, and would do so without ever
+    opening anything the caller could be refused.
+    """
+    target = scope.resolve(raw_path)
+    root = _containing_root(scope, target)
+    parts = _relative_parts(root, target)
+
+    if parts:
+        handle = _open_within_posix(Path(str(root)), parts)
+    else:
+        # The granted root itself is a legitimate thing to list.
+        handle = os.open(str(root), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+
+    try:
+        if not stat.S_ISDIR(os.fstat(handle).st_mode):
+            raise FileReadRefused("capability-parameters-invalid", "only a directory can be listed")
+        collected: list[dict[str, Any]] = []
+        truncated = False
+        # scandir borrows the descriptor rather than taking ownership of it, so
+        # closing the iterator is not the same as closing the handle. Assuming
+        # otherwise leaked one descriptor per listing.
+        with os.scandir(handle) as scanner:
+            for entry in scanner:
+                if len(collected) >= max_entries:
+                    truncated = True
+                    break
+                collected.append(_describe(entry))
+    finally:
+        os.close(handle)
+
+    collected.sort(key=lambda item: str(item["name"]))
+    return DirectoryListing(path=str(target), entries=tuple(collected), truncated=truncated)
+
+
+def _describe(entry: os.DirEntry[str]) -> dict[str, Any]:
+    if entry.is_symlink():
+        # Named, but never resolved. The operator learns a link exists without
+        # this capability reaching through it.
+        return {"name": entry.name, "kind": "symlink"}
+    try:
+        info = entry.stat(follow_symlinks=False)
+    except OSError:
+        return {"name": entry.name, "kind": "unknown"}
+    if stat.S_ISDIR(info.st_mode):
+        return {"name": entry.name, "kind": "directory"}
+    if stat.S_ISREG(info.st_mode):
+        return {"name": entry.name, "kind": "file", "size_bytes": info.st_size}
+    return {"name": entry.name, "kind": "other"}
+
+
+class FileListProvider:
+    """Serves ``fs.list@1`` within the same roots that bound reading."""
+
+    def __init__(self, *, scope: FileReadScope) -> None:
+        self._scope = scope
+
+    @property
+    def capabilities(self) -> tuple[str, ...]:
+        from olympus.nodes.scopes import FILE_LIST
+
+        return (FILE_LIST,)
+
+    @property
+    def scope(self) -> FileReadScope:
+        return self._scope
+
+    async def execute(
+        self, request: CapabilityRequest, report: ProgressReporter
+    ) -> CapabilityResult:
+        raw_path = request.parameters.get("path")
+        if not isinstance(raw_path, str):
+            return CapabilityResult(
+                status="rejected",
+                reason="capability-parameters-invalid",
+                message="fs.list requires a 'path' string",
+            )
+        requested = request.parameters.get("max_entries", MAX_LIST_ENTRIES)
+        try:
+            max_entries = max(1, min(int(requested), MAX_LIST_ENTRIES))
+        except (TypeError, ValueError):
+            return CapabilityResult(
+                status="rejected",
+                reason="capability-parameters-invalid",
+                message="max_entries must be an integer",
+            )
+
+        await report("listing within the granted root", 40)
+        try:
+            listing = await asyncio.to_thread(
+                list_within_scope, self._scope, raw_path, max_entries=max_entries
+            )
+        except FileReadRefused as refused:
+            return CapabilityResult(
+                status="rejected", reason=refused.reason, message=refused.message
+            )
+        except NodeMeshError as exc:
+            return CapabilityResult(status="rejected", reason=exc.reason.value, message=exc.message)
+        except OSError:
+            return CapabilityResult(
+                status="failed",
+                reason="capability-failed",
+                message="the directory could not be listed",
+            )
+
+        await report("listing complete", 100)
+        return CapabilityResult(
+            status="succeeded",
+            output={
+                "path": listing.path,
+                "entries": [dict(entry) for entry in listing.entries],
+                "entry_count": len(listing.entries),
+                "truncated": listing.truncated,
+            },
+        )

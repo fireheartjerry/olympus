@@ -39,6 +39,7 @@ from olympus.nodes.errors import NodeMeshError, NodeReason
 from olympus.nodes.models import NodePlatform
 
 FILE_READ = "fs.read@1"
+FILE_LIST = "fs.list@1"
 
 # Absolute ceiling on a single read, independent of what a scope asks for. A
 # scope may lower this; nothing may raise it.
@@ -225,13 +226,13 @@ def parse_scopes(payload: Mapping[str, Any] | None, *, platform: NodePlatform) -
         return {}
     scopes: dict[str, Any] = {}
     for capability, raw in payload.items():
-        if capability in (FILE_READ, FILE_WRITE):
+        if capability in (FILE_READ, FILE_LIST, FILE_WRITE):
             if not isinstance(raw, Mapping):
                 raise ScopeError(
                     NodeReason.CAPABILITY_PARAMETERS_INVALID,
                     f"scope for {capability} must be an object",
                 )
-            builder = FileReadScope if capability == FILE_READ else FileWriteScope
+            builder = FileWriteScope if capability == FILE_WRITE else FileReadScope
             scopes[capability] = builder.from_mapping(raw, platform=platform)
         # Unknown capability scopes are ignored rather than rejected so an older
         # control plane can read a record written by a newer one. They cannot
@@ -251,7 +252,7 @@ def requires_scope(capability: str) -> bool:
     be listed here the moment it is defined, so that forgetting to plumb its
     scope refuses dispatch rather than granting everything.
     """
-    return capability in (FILE_READ, FILE_WRITE)
+    return capability in (FILE_READ, FILE_LIST, FILE_WRITE)
 
 
 def assert_scoped_dispatch(

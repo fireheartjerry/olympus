@@ -40,6 +40,7 @@ from olympus.nodes.protocol import (
     DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
 )
 from olympus.nodes.scopes import (
+    FILE_LIST,
     FILE_READ,
     FILE_WRITE,
     ApprovalVerifier,
@@ -962,10 +963,10 @@ def _encode_scopes(
 
     encoded: list[tuple[str, str]] = []
     for capability, payload in scopes.items():
-        if capability in (FILE_READ, FILE_WRITE):
+        if capability in (FILE_READ, FILE_LIST, FILE_WRITE):
             # Round-tripped through the typed scope so a malformed root, an
             # over-large ceiling, or "/" is rejected here rather than stored.
-            builder = FileReadScope if capability == FILE_READ else FileWriteScope
+            builder = FileWriteScope if capability == FILE_WRITE else FileReadScope
             body = builder.from_mapping(payload, platform=platform).to_mapping()
         else:
             raise NodeMeshError(

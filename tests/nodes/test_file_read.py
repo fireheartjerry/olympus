@@ -20,6 +20,7 @@ from olympus.node_agent.file_read import (
     FileReadProvider,
     FileReadRefused,
     _open_within_fallback,
+    list_within_scope,
     read_within_scope,
 )
 from olympus.nodes.errors import NodeMeshError
@@ -390,3 +391,130 @@ def test_fallback_does_not_block_on_a_fifo(root: Path) -> None:
         assert isinstance(fd, int)
         assert stat.S_ISFIFO(os.fstat(fd).st_mode)
         os.close(fd)
+
+
+# --- fs.list: discovering names without reaching through them ------------------------
+
+
+def test_listing_reports_entries_without_following_links(root: Path, secret: Path) -> None:
+    """A listing that resolved links would describe files outside the root.
+
+    It would do so while appearing to describe what is inside it, and without
+    ever opening anything the caller could be refused.
+    """
+    (root / "link.txt").symlink_to(secret)
+
+    listing = list_within_scope(scope_for(root), str(root))
+    kinds = {entry["name"]: entry["kind"] for entry in listing.entries}
+
+    assert kinds["report.txt"] == "file"
+    assert kinds["nested"] == "directory"
+    assert kinds["link.txt"] == "symlink"
+    # Named, never resolved: no size, no content, nothing about the target.
+    link = next(entry for entry in listing.entries if entry["name"] == "link.txt")
+    assert "size_bytes" not in link
+
+
+def test_listing_is_deterministic_and_reports_sizes(root: Path) -> None:
+    listing = list_within_scope(scope_for(root), str(root))
+
+    assert [entry["name"] for entry in listing.entries] == sorted(
+        entry["name"] for entry in listing.entries
+    )
+    report = next(entry for entry in listing.entries if entry["name"] == "report.txt")
+    assert report["size_bytes"] == len("olympus report\n")
+
+
+def test_listing_never_recurses(root: Path) -> None:
+    # One level only: a recursive listing of a large tree is an unbounded
+    # operation wearing a bounded capability.
+    listing = list_within_scope(scope_for(root), str(root))
+
+    assert "deep.txt" not in {entry["name"] for entry in listing.entries}
+
+
+def test_listing_outside_the_root_is_refused(root: Path, tmp_path: Path) -> None:
+    with pytest.raises(NodeMeshError):
+        list_within_scope(scope_for(root), str(tmp_path))
+
+
+def test_listing_through_a_symlinked_directory_is_refused(root: Path, tmp_path: Path) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "secret.txt").write_text("x", encoding="utf-8")
+    (root / "bridge").symlink_to(elsewhere)
+
+    with pytest.raises(FileReadRefused, match="symbolic link"):
+        list_within_scope(scope_for(root), str(root / "bridge"))
+
+
+def test_listing_a_file_is_refused(root: Path) -> None:
+    with pytest.raises(FileReadRefused, match="only a directory"):
+        list_within_scope(scope_for(root), str(root / "report.txt"))
+
+
+def test_a_large_directory_is_truncated_and_says_so(root: Path) -> None:
+    for index in range(50):
+        (root / f"entry-{index:03d}.txt").write_text("x", encoding="utf-8")
+
+    listing = list_within_scope(scope_for(root), str(root), max_entries=10)
+
+    assert len(listing.entries) == 10
+    assert listing.truncated is True
+
+
+def test_listing_does_not_leak_descriptors(root: Path) -> None:
+    if not Path("/proc/self/fd").exists():
+        pytest.skip("needs /proc")
+    before = len(os.listdir("/proc/self/fd"))
+
+    for _ in range(50):
+        list_within_scope(scope_for(root), str(root))
+
+    assert len(os.listdir("/proc/self/fd")) <= before + 2
+
+
+async def test_list_provider_returns_a_bounded_listing(root: Path) -> None:
+    from olympus.node_agent.file_read import FileListProvider
+
+    provider = FileListProvider(scope=scope_for(root))
+
+    async def report(message: str, percent: int | None) -> None:
+        return None
+
+    result = await provider.execute(
+        CapabilityRequest(
+            job_id="list-1",
+            capability="fs.list@1",
+            parameters={"path": str(root)},
+            deadline_seconds=15,
+            max_output_bytes=65_536,
+        ),
+        report,
+    )
+
+    assert result.status == "succeeded"
+    assert result.output["entry_count"] >= 2
+    assert result.output["truncated"] is False
+
+
+async def test_list_provider_refuses_a_path_outside_the_root(root: Path, secret: Path) -> None:
+    from olympus.node_agent.file_read import FileListProvider
+
+    provider = FileListProvider(scope=scope_for(root))
+
+    async def report(message: str, percent: int | None) -> None:
+        return None
+
+    result = await provider.execute(
+        CapabilityRequest(
+            job_id="list-2",
+            capability="fs.list@1",
+            parameters={"path": str(secret.parent)},
+            deadline_seconds=15,
+            max_output_bytes=65_536,
+        ),
+        report,
+    )
+
+    assert result.status == "rejected"

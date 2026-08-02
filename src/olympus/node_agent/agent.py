@@ -174,10 +174,11 @@ class NodeAgent:
         it is refused as undeclared rather than run unbounded. That is the same
         fail-closed direction the control plane takes.
         """
-        from olympus.node_agent.file_read import FileReadProvider
+        from olympus.node_agent.file_read import FileListProvider, FileReadProvider
         from olympus.node_agent.file_write import FileWriteProvider
         from olympus.nodes.models import NodePlatform
         from olympus.nodes.scopes import (
+            FILE_LIST,
             FILE_READ,
             FILE_WRITE,
             FileReadScope,
@@ -202,6 +203,16 @@ class NodeAgent:
                 )
             except ScopeError:
                 # A malformed scope is not a licence to improvise one.
+                pass
+
+        self._providers.pop(FILE_LIST, None)
+        list_scope = self.capability_scopes.get(FILE_LIST)
+        if FILE_LIST in self.granted_capabilities and list_scope:
+            try:
+                self._providers[FILE_LIST] = FileListProvider(
+                    scope=FileReadScope.from_mapping(list_scope, platform=node_platform)
+                )
+            except ScopeError:
                 pass
 
         self._providers.pop(FILE_WRITE, None)

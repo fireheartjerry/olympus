@@ -1033,3 +1033,31 @@ async def test_active_jobs_can_be_scoped_to_one_node() -> None:
         running.cancel()
     finally:
         await connection.aclose()
+
+
+async def test_fs_list_runs_end_to_end_under_the_read_scope(tmp_path) -> None:
+    """Listing and reading share a scope: discovery reveals no more than reading.
+
+    Wired through the agent in the same commit that enabled it, rather than
+    shipping a third enabled-but-unreachable capability.
+    """
+    directory = tmp_path / "granted"
+    directory.mkdir()
+    (directory / "a.txt").write_text("a", encoding="utf-8")
+    (directory / "sub").mkdir()
+
+    mesh = Mesh(platform=NodePlatform.LINUX)
+    await mesh.enroll(
+        capabilities=(SYSTEM_INSPECT.name, "fs.list@1"),
+        capability_scopes={"fs.list@1": {"roots": [str(directory)], "max_bytes": 4096}},
+    )
+    connection = await connect(mesh, providers=[], serves=("fs.list@1",))
+    try:
+        outcome = await mesh.dispatch.run_job(
+            job(job_id="list-1", capability="fs.list@1", parameters={"path": str(directory)})
+        )
+        assert outcome.status is NodeJobStatus.SUCCEEDED
+        names = {entry["name"] for entry in outcome.output["entries"]}
+        assert names == {"a.txt", "sub"}
+    finally:
+        await connection.aclose()

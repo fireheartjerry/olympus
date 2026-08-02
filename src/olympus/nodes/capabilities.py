@@ -120,6 +120,21 @@ FILE_READ = _descriptor(
     max_output_bytes=200_000,
 )
 
+FILE_LIST = _descriptor(
+    "fs.list",
+    1,
+    "Bounded directory listing",
+    "List the immediate entries of one directory this node was granted for "
+    "reading. Never recurses, never follows a symbolic link, and reports what "
+    "each entry is without opening it. Reveals names and sizes only.",
+    CapabilityStatus.ENABLED,
+    CapabilityRisk.OBSERVE,
+    mutating=False,
+    requires_approval=False,
+    max_runtime_seconds=15,
+    max_output_bytes=131_072,
+)
+
 FILE_WRITE = _descriptor(
     "fs.write",
     1,
@@ -204,7 +219,7 @@ _RESERVED = (
 CAPABILITY_CATALOG: Mapping[str, CapabilityDescriptor] = MappingProxyType(
     {
         descriptor.name: descriptor
-        for descriptor in (SYSTEM_INSPECT, FILE_READ, FILE_WRITE, *_RESERVED)
+        for descriptor in (SYSTEM_INSPECT, FILE_READ, FILE_LIST, FILE_WRITE, *_RESERVED)
     }
 )
 

@@ -13,6 +13,7 @@ from olympus.nodes.audit import (
 from olympus.nodes.capabilities import (
     CAPABILITY_CATALOG,
     ENABLED_CAPABILITIES,
+    FILE_LIST,
     FILE_READ,
     FILE_WRITE,
     SYSTEM_INSPECT,
@@ -55,8 +56,13 @@ def test_only_bounded_read_only_capabilities_are_dispatchable_today() -> None:
     capability is a deliberate edit to this test and not a silent side effect
     of adding a catalog entry.
     """
-    assert ENABLED_CAPABILITIES == (FILE_READ.name, FILE_WRITE.name, SYSTEM_INSPECT.name)
-    for descriptor in (SYSTEM_INSPECT, FILE_READ, FILE_WRITE):
+    assert ENABLED_CAPABILITIES == (
+        FILE_LIST.name,
+        FILE_READ.name,
+        FILE_WRITE.name,
+        SYSTEM_INSPECT.name,
+    )
+    for descriptor in (SYSTEM_INSPECT, FILE_READ, FILE_LIST, FILE_WRITE):
         assert require_dispatchable_capability(descriptor.name) is descriptor
 
 
