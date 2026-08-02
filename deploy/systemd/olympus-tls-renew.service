@@ -1,0 +1,19 @@
+[Unit]
+Description=Renew the Olympus gateway TLS certificate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+# tailscale cert is a no-op when the certificate is still comfortably valid,
+# so this is safe to run daily. It renews inside the last third of the
+# lifetime, which leaves weeks of slack rather than hours.
+ExecStart=/usr/bin/tailscale cert --cert-file /home/ubuntu/olympus/run/tls/olympus.crt --key-file /home/ubuntu/olympus/run/tls/olympus.key vps-41e741fc.tail70f263.ts.net
+# Only bounce the gateway when the certificate actually changed on disk;
+# uvicorn reads it once at startup and an unconditional restart would drop
+# a ceremony in progress for no reason.
+ExecStartPost=/home/ubuntu/olympus/scripts/restart-gateway-if-cert-changed.sh
+
+[Install]
+WantedBy=default.target

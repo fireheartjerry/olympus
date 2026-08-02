@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,6 +9,7 @@ from olympus.authority.repository import (
     AdmissionRequest,
     Challenge,
     ChallengeConsumed,
+    Credential,
     InMemoryAuthorityRepository,
     LeaseRequest,
 )
@@ -127,3 +129,88 @@ async def test_freeze_started_first_wins_concurrent_admission() -> None:
     with pytest.raises(AdmissionDenied, match="frozen"):
         await repository.admit(request)
     await freeze_task
+
+
+def bootstrap_challenge() -> Challenge:
+    return Challenge(
+        challenge_id="challenge-bootstrap",
+        challenge_value=b"y" * 32,
+        challenge_digest=b"c" * 32,
+        purpose="bootstrap-registration",
+        commander_id="628053765181800448",
+        payload_digest=b"d" * 32,
+        payload_json=None,
+        issued_at=NOW,
+        expires_at=NOW + timedelta(minutes=5),
+    )
+
+
+async def enroll(repository: InMemoryAuthorityRepository) -> None:
+    request = bootstrap_challenge()
+    await repository.create_challenge(request)
+    await repository.complete_registration(
+        request.challenge_id,
+        request.challenge_digest,
+        Credential(
+            credential_id=b"credential-identity",
+            commander_id="628053765181800448",
+            public_key=b"public-key-material",
+            sign_count=0,
+            created_at=NOW,
+        ),
+        NOW,
+    )
+
+
+async def test_enrollment_is_recorded_in_the_audit_chain() -> None:
+    """Enrollment creates authority from nothing; the chain must show it.
+
+    Only authority *use* was recorded before — leases, freezes, recovery — so a
+    credential could appear with no chained, signable evidence that it ever
+    did. That left the one event a forger would most want to fabricate outside
+    the evidence the off-host export exists to protect.
+    """
+    repository = InMemoryAuthorityRepository()
+    await enroll(repository)
+
+    events = await repository.audit_events()
+
+    assert [event.event_type for event in events] == ["credential-enrolled"]
+    assert events[0].sequence == 1
+    assert InMemoryAuthorityRepository.verify_audit_chain(events) is True
+
+
+async def test_enrollment_audit_event_carries_no_credential_material() -> None:
+    # The chain is exported off-host. A credential ID and public key are what a
+    # forger needs; a fingerprint proves which credential without carrying it.
+    repository = InMemoryAuthorityRepository()
+    await enroll(repository)
+
+    body = (await repository.audit_events())[0].body
+
+    assert "credential-identity" not in body
+    assert "public-key-material" not in body
+    assert hashlib.sha256(b"credential-identity").hexdigest() in body
+    assert hashlib.sha256(b"public-key-material").hexdigest() in body
+
+
+async def test_enrollment_links_ahead_of_the_first_lease() -> None:
+    # Enrollment must be sequence 1, so the chain shows authority being created
+    # before it is ever exercised.
+    repository = InMemoryAuthorityRepository()
+    await enroll(repository)
+    lease = challenge()
+    await repository.create_challenge(lease)
+    await repository.complete_authentication(
+        lease.challenge_id,
+        lease.challenge_digest,
+        b"credential-identity",
+        1,
+        lease_request("lease-1"),
+        NOW,
+    )
+
+    events = await repository.audit_events()
+
+    assert [event.event_type for event in events] == ["credential-enrolled", "lease-issued"]
+    assert InMemoryAuthorityRepository.verify_audit_chain(events) is True

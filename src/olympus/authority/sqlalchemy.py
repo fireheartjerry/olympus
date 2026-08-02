@@ -159,6 +159,26 @@ class SqlAlchemyAuthorityRepository:
                     revoked_at=credential.revoked_at,
                 )
             )
+            # Enrollment is the moment authority is created from nothing, so it
+            # belongs in the chain more than anything that follows it. Without
+            # this the credential row exists but no signed, chained evidence
+            # records that it ever appeared — leaving the one event an attacker
+            # would most want to forge outside the export subsystem entirely.
+            #
+            # Fingerprints, not material: the credential ID and public key are
+            # what a forger would need, and the audit chain is exported
+            # off-host. A hash proves which credential without carrying it.
+            await self._append_audit(
+                session,
+                "credential-enrolled",
+                {
+                    "commander_id": credential.commander_id,
+                    "credential_fingerprint": hashlib.sha256(credential.credential_id).hexdigest(),
+                    "public_key_fingerprint": hashlib.sha256(credential.public_key).hexdigest(),
+                    "created_at": credential.created_at.isoformat(),
+                },
+                now,
+            )
             return credential
 
     async def complete_authentication(

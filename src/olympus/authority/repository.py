@@ -299,6 +299,18 @@ class InMemoryAuthorityRepository:
             if credential.credential_id in self._credentials:
                 raise AuthorityRepositoryError("credential identity already exists")
             self._credentials[credential.credential_id] = credential
+            # Mirrors the SQLAlchemy repository exactly. If only one of the two
+            # recorded enrollment, tests would pass against a chain the
+            # production store does not actually produce.
+            self._append_audit(
+                "credential-enrolled",
+                {
+                    "commander_id": credential.commander_id,
+                    "credential_fingerprint": hashlib.sha256(credential.credential_id).hexdigest(),
+                    "public_key_fingerprint": hashlib.sha256(credential.public_key).hexdigest(),
+                    "created_at": credential.created_at.isoformat(),
+                },
+            )
             return credential
 
     async def complete_authentication(

@@ -64,8 +64,23 @@ re-issued):
 `curl` without `-k` returns `ssl_verify_result 0`: the chain validates against
 the public trust store, which is what an iPhone will require.
 
-**Renewal:** re-run `tailscale cert --cert-file ... --key-file ...` before
-Oct 27 2026 and restart the service.
+**Renewal is automated.** `olympus-tls-renew.timer` runs daily (randomized by
+up to an hour) and invokes `tailscale cert`, which is a no-op while the
+certificate is still comfortably valid.
+
+The restart is *conditional*. `uvicorn` reads the certificate once at startup,
+so a renewal does not take effect until the process restarts — but restarting
+daily would interrupt a ceremony on the ~89 days a year nothing changed.
+`scripts/restart-gateway-if-cert-changed.sh` compares a SHA-256 fingerprint
+against the last deployed one and restarts only on a real change, then reopens a
+TLS connection and confirms the *served* certificate matches. A renewal that
+silently failed would be worse than none, because it would look handled.
+
+```bash
+systemctl --user list-timers olympus-tls-renew.timer
+systemctl --user start olympus-tls-renew.service   # force a check now
+journalctl --user -u olympus-tls-renew.service -n 20
+```
 
 ## 4. Origin, RP ID, and the port
 
@@ -165,17 +180,28 @@ got the same treatment.
 **Re-opening bootstrap requires deleting the credential**, not just flipping the
 flag. That is deliberate.
 
-## 7a. Known gap: enrollment is not in the signed audit chain
+## 7a. Enrollment is now in the signed audit chain
 
-`security_audit_events` records authority *use* — `complete_authentication`,
-`issue_lease`, `freeze`, `complete_recovery` — not enrollment. The bootstrap
-ceremony therefore leaves a credential row but no chained, signable audit event,
-so the single most security-significant moment in the system's life is outside
-the evidence the export subsystem protects.
+`security_audit_events` used to record only authority *use* —
+`complete_authentication`, `issue_lease`, `freeze`, `complete_recovery`. The
+bootstrap ceremony left a credential row and no chained, signable evidence that
+it ever happened, putting the one event a forger would most want to fabricate
+outside what the off-host export protects.
 
-This was found after the ceremony and is **not** fixed here: adding an event
-type changes authority semantics and inserts into the hash chain, which is not
-something to do unannounced. Recommended as the next change.
+`complete_registration` now appends a `credential-enrolled` event in the same
+transaction as the credential row, so a credential cannot exist without the
+chain showing where it came from. Both the SQLAlchemy and in-memory
+repositories record it, since a contract suite that passed against a chain the
+production store does not produce would be worthless.
+
+The event carries **fingerprints, not material**: SHA-256 of the credential ID
+and of the public key. Those two values are what a forger would need, and this
+chain is exported off-host; a hash proves which credential without carrying it.
+
+Jerry's existing enrollment predates this change and is therefore not in the
+chain — it cannot be back-filled without fabricating a hash-chain entry, which
+is exactly the thing the chain exists to make impossible. The next enrollment
+will be recorded.
 
 ## 8. Not enabled in this deployment
 

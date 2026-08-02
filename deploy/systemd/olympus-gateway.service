@@ -1,0 +1,20 @@
+[Unit]
+Description=Olympus production authority gateway (Face ID enrollment)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=/home/ubuntu/olympus
+ExecStart=/home/ubuntu/olympus/.venv/bin/python -m olympus.runtime.production_gateway
+Restart=on-failure
+RestartSec=3
+# The gateway reads .env.production from its working directory; that file holds
+# the database credential and is never world-readable.
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=default.target
