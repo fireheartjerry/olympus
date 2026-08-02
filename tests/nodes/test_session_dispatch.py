@@ -931,3 +931,105 @@ async def test_the_scope_the_node_receives_is_the_one_the_grant_states(tmp_path)
         assert delivered["max_bytes"] == 1024
     finally:
         await connection.aclose()
+
+
+# --- revocation must reach the live session ------------------------------------------
+
+
+async def test_revoking_a_node_cancels_its_work_and_closes_its_session() -> None:
+    """Revoking only the record marks the node untrusted for *future* dispatch.
+
+    The channel stays open and whatever it is running keeps running — the
+    opposite of what an operator revoking a compromised node is asking for.
+    """
+    mesh = Mesh()
+    await mesh.enroll()
+    connection = await connect(mesh, FakeCapabilityProvider(stall=True))
+    try:
+        running = asyncio.create_task(mesh.dispatch.run_job(job(job_id="stalled")))
+        await asyncio.sleep(0.1)
+        assert mesh.dispatch.active_job_ids() == ("stalled",)
+        assert mesh.dispatch.session_for(mesh.node_id) is not None
+
+        await mesh.dispatch.revoke_node(mesh.node_id, actor="jerry", reason="suspected-compromise")
+
+        # The in-flight job does not complete; it fails because the channel it
+        # was running over is gone. That is the point.
+        with pytest.raises(NodeMeshError):
+            await asyncio.wait_for(running, timeout=5)
+        assert mesh.dispatch.active_job_ids() == ()
+        assert mesh.dispatch.session_for(mesh.node_id) is None
+    finally:
+        await connection.aclose()
+
+
+async def test_quarantining_a_node_also_stops_it_acting() -> None:
+    # Reversible where revocation is not, but equally incapacitating while in
+    # force.
+    mesh = Mesh()
+    await mesh.enroll()
+    connection = await connect(mesh, FakeCapabilityProvider(stall=True))
+    try:
+        running = asyncio.create_task(mesh.dispatch.run_job(job(job_id="stalled")))
+        await asyncio.sleep(0.1)
+
+        await mesh.dispatch.quarantine_node(mesh.node_id, actor="jerry", reason="anomaly")
+
+        with pytest.raises(NodeMeshError):
+            await asyncio.wait_for(running, timeout=5)
+        assert mesh.dispatch.active_job_ids() == ()
+        assert mesh.dispatch.session_for(mesh.node_id) is None
+    finally:
+        await connection.aclose()
+
+
+async def test_a_revoked_node_cannot_be_dispatched_to_afterwards() -> None:
+    mesh = Mesh()
+    await mesh.enroll()
+    connection = await connect(mesh)
+    try:
+        await mesh.dispatch.revoke_node(mesh.node_id, actor="jerry", reason="rotation")
+
+        with pytest.raises(NodeMeshError) as caught:
+            await mesh.dispatch.run_job(job(job_id="after-revocation"))
+        assert caught.value.reason in (
+            NodeReason.NODE_REVOKED,
+            NodeReason.DISPATCH_NO_ELIGIBLE_NODE,
+        )
+    finally:
+        await connection.aclose()
+
+
+async def test_revoking_an_unknown_node_refuses_and_touches_nothing() -> None:
+    """Failing loudly beats silently tearing down whatever happens to be running."""
+    mesh = Mesh()
+    await mesh.enroll()
+    connection = await connect(mesh, FakeCapabilityProvider(stall=True))
+    try:
+        running = asyncio.create_task(mesh.dispatch.run_job(job(job_id="mine")))
+        await asyncio.sleep(0.1)
+
+        with pytest.raises(NodeMeshError) as caught:
+            await mesh.dispatch.revoke_node("node-that-does-not-exist", actor="jerry", reason="x")
+        assert caught.value.reason is NodeReason.NODE_UNKNOWN
+
+        assert mesh.dispatch.active_job_ids() == ("mine",)
+        assert mesh.dispatch.session_for(mesh.node_id) is not None
+        running.cancel()
+    finally:
+        await connection.aclose()
+
+
+async def test_active_jobs_can_be_scoped_to_one_node() -> None:
+    mesh = Mesh()
+    await mesh.enroll()
+    connection = await connect(mesh, FakeCapabilityProvider(stall=True))
+    try:
+        running = asyncio.create_task(mesh.dispatch.run_job(job(job_id="scoped")))
+        await asyncio.sleep(0.1)
+
+        assert mesh.dispatch.active_job_ids(node_id=mesh.node_id) == ("scoped",)
+        assert mesh.dispatch.active_job_ids(node_id="someone-else") == ()
+        running.cancel()
+    finally:
+        await connection.aclose()

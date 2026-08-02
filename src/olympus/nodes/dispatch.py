@@ -16,6 +16,7 @@ from olympus.nodes.models import (
     NodeJobOutcome,
     NodeJobRecord,
     NodeJobStatus,
+    NodeRecord,
     utc_now,
 )
 from olympus.nodes.protocol import MAX_PROGRESS_EVENTS_PER_JOB, JobProgressFrame
@@ -277,6 +278,44 @@ class NodeDispatchService:
             await self.cancel_job(job_id, reason=NodeReason.DISPATCH_FROZEN.value, actor=actor)
         return control
 
+    # -- lifecycle that must reach the live session -------------------------
+
+    async def revoke_node(self, node_id: str, *, actor: str, reason: str) -> NodeRecord:
+        """Revoke a node and stop it doing anything it is already doing.
+
+        Revoking only the registry record marks the node untrusted for *future*
+        dispatch and leaves the present alone: the channel stays open and
+        whatever it is running keeps running. For a node revoked because it is
+        believed compromised, that is the opposite of what the operator asked
+        for.
+
+        Order matters. The record is revoked first so nothing new can be
+        admitted while in-flight work is being torn down; cancelling first would
+        leave a window in which a fresh job could be accepted.
+        """
+        record = await self._registry.revoke_node(node_id, actor=actor, reason=reason)
+        await self._terminate(node_id, actor=actor, reason=NodeReason.NODE_REVOKED.value)
+        return record
+
+    async def quarantine_node(self, node_id: str, *, actor: str, reason: str) -> NodeRecord:
+        """Quarantine a node and stop its in-flight work, same as revocation.
+
+        Quarantine is reversible where revocation is not, but while it is in
+        force the node must be equally unable to act.
+        """
+        record = await self._registry.quarantine_node(node_id, actor=actor, reason=reason)
+        await self._terminate(node_id, actor=actor, reason=NodeReason.NODE_QUARANTINED.value)
+        return record
+
+    async def _terminate(self, node_id: str, *, actor: str, reason: str) -> None:
+        for job_id in self.active_job_ids(node_id=node_id):
+            await self.cancel_job(job_id, reason=reason, actor=actor)
+        session = self.session_for(node_id)
+        if session is not None:
+            # Closing the channel is what actually removes the node's ability to
+            # act. Everything before this only changes what we would agree to.
+            await session.shutdown(reason=reason)
+
     async def unfreeze(
         self, *, actor: str, expected_freeze_epoch: int, reason: str = ""
     ) -> DispatchControlState:
@@ -322,7 +361,10 @@ class NodeDispatchService:
     def jobs(self) -> tuple[NodeJobRecord, ...]:
         return tuple(reversed(list(self._jobs.values())))
 
-    def active_job_ids(self) -> tuple[str, ...]:
+    def active_job_ids(self, *, node_id: str | None = None) -> tuple[str, ...]:
         return tuple(
-            job.job_id for job in self._jobs.values() if job.status not in TERMINAL_JOB_STATUSES
+            job.job_id
+            for job in self._jobs.values()
+            if job.status not in TERMINAL_JOB_STATUSES
+            and (node_id is None or job.node_id == node_id)
         )
