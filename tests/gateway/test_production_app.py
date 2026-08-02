@@ -6,7 +6,14 @@ from olympus.authority.latch import CanonicalRecoveryProof
 from olympus.authority.models import RecoveryPayload
 from olympus.authority.repository import AuthorityLease
 from olympus.gateway.production import create_production_app
-from olympus.webauthn.service import Ceremony, RecoveryCeremony, RecoveryResult
+from olympus.webauthn.service import (
+    AuthenticationAnomaly,
+    BootstrapDenied,
+    Ceremony,
+    CeremonyPurpose,
+    RecoveryCeremony,
+    RecoveryResult,
+)
 
 ORIGIN = "https://olympus.tail-example.ts.net"
 NOW = datetime(2026, 7, 29, tzinfo=UTC)
@@ -180,3 +187,92 @@ def test_rejects_oversized_request_before_parsing() -> None:
     )
 
     assert response.status_code == 413
+
+
+class RefusingWebAuthn(FakeWebAuthn):
+    """The steady state after enrollment: bootstrap is permanently closed."""
+
+    async def begin_registration(
+        self,
+        *,
+        purpose: CeremonyPurpose,
+        bootstrap_enabled: bool,
+        now: datetime,
+    ) -> Ceremony:
+        raise BootstrapDenied("bootstrap registration is unavailable")
+
+
+class AnomalousWebAuthn(FakeWebAuthn):
+    async def begin_authentication(self, *, now: datetime) -> Ceremony:
+        raise AuthenticationAnomaly("sign count regressed")
+
+
+def refusing_client(webauthn: object) -> TestClient:
+    app = create_production_app(
+        webauthn=webauthn,
+        discord=FakeDiscord(),
+        discord_public_key=bytes(32),
+        webauthn_origin=ORIGIN,
+        webauthn_host="olympus.tail-example.ts.net",
+        bootstrap_enabled=False,
+        now=lambda: NOW,
+        ready=lambda: True,
+    )
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def test_closed_bootstrap_is_a_refusal_not_a_crash() -> None:
+    """Once a credential exists this is the normal path, on every request.
+
+    A 500 here would bury a deliberate authority decision in what looks like a
+    malfunction, and would make a real malfunction indistinguishable from
+    correct operation.
+    """
+    response = refusing_client(RefusingWebAuthn()).post(
+        "/v1/webauthn/register/options",
+        headers=webauthn_headers(),
+        json={},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "ceremony unavailable"}
+
+
+def test_refusal_does_not_disclose_why_the_ceremony_is_unavailable() -> None:
+    # Switched off, versus a credential already existing, must look identical.
+    body = (
+        refusing_client(RefusingWebAuthn())
+        .post(
+            "/v1/webauthn/register/options",
+            headers=webauthn_headers(),
+            json={},
+        )
+        .text
+    )
+
+    assert "bootstrap" not in body.lower()
+    assert "credential" not in body.lower()
+
+
+def test_authentication_anomaly_is_refused_without_detail() -> None:
+    response = refusing_client(AnomalousWebAuthn()).post(
+        "/v1/webauthn/lease/options",
+        headers=webauthn_headers(),
+        json={},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "request denied"}
+    assert "sign count" not in response.text
+
+
+def test_a_closed_bootstrap_still_refuses_a_wrong_origin_first() -> None:
+    # The origin boundary is not bypassed by the ceremony being unavailable.
+    response = refusing_client(RefusingWebAuthn()).post(
+        "/v1/webauthn/register/options",
+        headers={"Origin": "https://evil.example", "Host": "olympus.tail-example.ts.net"},
+        json={},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "request denied"}

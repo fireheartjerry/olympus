@@ -1,6 +1,6 @@
 # Olympus Production Gateway — Deployment Runbook
 
-**Status:** Deployed and validated on `vps-41e741fc`; enrollment ceremony pending
+**Status:** Deployed on `vps-41e741fc`; Face ID enrolled and bootstrap closed
 
 **Date:** 2026-08-01
 
@@ -140,17 +140,42 @@ journalctl --user -u olympus-gateway.service -f
 
 `Restart=on-failure`, `UMask=0077`, `NoNewPrivileges=true`, `ProtectSystem=full`.
 
-## 7. Before the ceremony
+## 7. Enrollment ceremony — completed
 
-- **`iphone-xs` must be online on Tailscale.** It was last seen 16 hours ago.
-  The enrollment page is unreachable from a device that is not on the tailnet.
-- `bootstrap_enabled=true` is set, and the credential table is empty
-  (`webauthn_credentials` count 0). The bootstrap ceremony refuses to run
-  otherwise, and refuses to run again once a credential exists.
-- **After enrolling, set `OLYMPUS_PRODUCTION_BOOTSTRAP_ENABLED=false` and
-  restart.** The service-level check already refuses a second bootstrap once a
-  credential exists, but leaving the flag on is a standing invitation that costs
-  nothing to withdraw.
+Performed 2026-08-02 01:49 UTC from `iphone-xs` over Tailscale.
+
+- One credential in `webauthn_credentials`, bound to commander
+  `628053765181800448`, `sign_count` 0.
+- `OLYMPUS_PRODUCTION_BOOTSTRAP_ENABLED` was then set to `false` and the service
+  restarted. Bootstrap now returns **403 `ceremony unavailable`**, and would do
+  so even with the flag on, because a credential exists.
+- The lease (authentication) ceremony is live: it returns `rpId`
+  `vps-41e741fc.tail70f263.ts.net`, `userVerification: required`, and offers the
+  one enrolled credential.
+
+A defect was found and fixed at this point: a closed bootstrap surfaced as
+**500**, because `BootstrapDenied` had no handler. Once a credential exists that
+is the *normal* state on every request, so a 500 would bury a deliberate
+authority decision in what looks like a malfunction — and make a real
+malfunction indistinguishable from correct operation. It is now a 403 that
+discloses nothing about *why* the ceremony is unavailable, so "switched off" and
+"already enrolled" are indistinguishable to a caller. `AuthenticationAnomaly`
+got the same treatment.
+
+**Re-opening bootstrap requires deleting the credential**, not just flipping the
+flag. That is deliberate.
+
+## 7a. Known gap: enrollment is not in the signed audit chain
+
+`security_audit_events` records authority *use* — `complete_authentication`,
+`issue_lease`, `freeze`, `complete_recovery` — not enrollment. The bootstrap
+ceremony therefore leaves a credential row but no chained, signable audit event,
+so the single most security-significant moment in the system's life is outside
+the evidence the export subsystem protects.
+
+This was found after the ceremony and is **not** fixed here: adding an event
+type changes authority semantics and inserts into the hash chain, which is not
+something to do unannounced. Recommended as the next change.
 
 ## 8. Not enabled in this deployment
 
@@ -159,3 +184,30 @@ is stale — see `discord-credential-recovery.md`) and a Temporal workflow
 gateway, neither of which enrollment needs. The boundary is wired to
 `DiscordAuthorityDisabled`, which refuses every interaction outright rather than
 appearing wired while doing nothing.
+
+## 9. Reaching it from the phone without typing
+
+The URL cannot be shortened. The passkey is bound to the relying-party ID
+`vps-41e741fc.tail70f263.ts.net`; any other hostname either fails TLS
+validation or presents a different RP ID, and in the second case the enrolled
+credential simply will not be offered. A redirector on 443 or 8443 was also
+ruled out — those belong to other services and reconfiguring them is out of
+scope by instruction.
+
+So remove the typing instead of the URL:
+
+- **Add to Home Screen.** In Safari, open the page → Share → *Add to Home
+  Screen*. It launches at the exact origin thereafter, one tap, no typing.
+- **QR code.** Regenerate any time with a throwaway environment (deliberately
+  not a project dependency):
+
+  ```bash
+  python3 -m venv /tmp/qrenv && /tmp/qrenv/bin/pip install -q qrcode
+  /tmp/qrenv/bin/python -c "
+  import qrcode
+  q=qrcode.QRCode(border=2); q.add_data('https://vps-41e741fc.tail70f263.ts.net:9443')
+  q.make(fit=True); q.print_ascii()"
+  ```
+
+Tailscale must be connected on the phone either way; the host is not resolvable
+or reachable off the tailnet.

@@ -18,6 +18,8 @@ from olympus.discord.contracts import DiscordInteraction
 from olympus.discord.service import DiscordCommandResponse
 from olympus.discord.verify import DiscordVerificationError, verify_discord_request
 from olympus.webauthn.service import (
+    AuthenticationAnomaly,
+    BootstrapDenied,
     Ceremony,
     CeremonyPurpose,
     RecoveryCeremony,
@@ -145,6 +147,30 @@ def create_production_app(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             )
         return await call_next(request)
+
+    @app.exception_handler(BootstrapDenied)
+    async def bootstrap_denied(request: Request, exc: BootstrapDenied) -> JSONResponse:
+        """A refused ceremony is a decision, not a crash.
+
+        Bootstrap is denied on every request once a credential exists, so this
+        is the *normal* steady state after enrollment rather than an edge case.
+        Letting it surface as a 500 would bury a deliberate authority decision
+        in what looks like a malfunction, and would make a real malfunction
+        indistinguishable from correct operation in the logs.
+
+        The reason is deliberately not echoed: the caller learns that the
+        ceremony is unavailable, not whether that is because bootstrap is
+        switched off or because a credential already exists.
+        """
+        return JSONResponse(
+            {"detail": "ceremony unavailable"}, status_code=status.HTTP_403_FORBIDDEN
+        )
+
+    @app.exception_handler(AuthenticationAnomaly)
+    async def authentication_anomaly(request: Request, exc: AuthenticationAnomaly) -> JSONResponse:
+        # Anomalies are recorded by the authority service; the caller is told
+        # only that it was refused.
+        return JSONResponse({"detail": "request denied"}, status_code=status.HTTP_403_FORBIDDEN)
 
     def require_private_origin(request: Request) -> None:
         if (
