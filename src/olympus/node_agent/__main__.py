@@ -17,12 +17,20 @@ from olympus.node_agent.config import (
 )
 from olympus.node_agent.enroll import EnrollmentError, enroll
 from olympus.node_agent.transport import open_session_channel
-from olympus.nodes.capabilities import SYSTEM_INSPECT
+from olympus.nodes.capabilities import FILE_READ, FILE_WRITE, SYSTEM_INSPECT
 from olympus.nodes.channel import ChannelClosed
 from olympus.nodes.crypto import generate_node_keypair
 from olympus.nodes.errors import NodeMeshError
 
-DEFAULT_CAPABILITIES: tuple[str, ...] = (SYSTEM_INSPECT.name,)
+# What this agent is *able* to serve. It is not what it may do: the control
+# plane intersects this with the grant, and the scoped providers only come into
+# existence when a scope arrives over the authenticated session. Declaring a
+# capability with no grant behind it therefore gains the node nothing.
+DEFAULT_CAPABILITIES: tuple[str, ...] = (
+    SYSTEM_INSPECT.name,
+    FILE_READ.name,
+    FILE_WRITE.name,
+)
 MIN_BACKOFF_SECONDS = 2
 MAX_BACKOFF_SECONDS = 60
 
@@ -123,6 +131,9 @@ async def _serve(config: NodeAgentConfig, *, state_directory: Path, once: bool) 
     agent = NodeAgent(
         identity=identity,
         providers=_providers(config, state_directory),
+        # fs.read and fs.write have no provider until the session delivers their
+        # scope, so they are declared here rather than derived from providers.
+        serves=(FILE_READ.name, FILE_WRITE.name),
         node_platform=_normalized_platform(),
         architecture=platform.machine() or "unknown",
     )

@@ -114,7 +114,10 @@ FILE_READ = _descriptor(
     mutating=False,
     requires_approval=False,
     max_runtime_seconds=30,
-    max_output_bytes=1_048_576,
+    # Bounded by what a dispatch frame can actually carry. A capability whose
+    # declared ceiling exceeds MAX_FRAME_BYTES is not "generous", it is
+    # undispatchable: the frame fails validation before it is ever sent.
+    max_output_bytes=200_000,
 )
 
 FILE_WRITE = _descriptor(

@@ -405,3 +405,19 @@ def test_permanent_refusals_are_not_retried() -> None:
     assert is_permanent_refusal(NodeReason.DISPATCH_FROZEN) is True
     assert is_permanent_refusal(NodeReason.NODE_OFFLINE) is False
     assert is_permanent_refusal(NodeReason.SESSION_CLOSED) is False
+
+
+def test_no_capability_declares_more_output_than_a_frame_can_carry() -> None:
+    """A ceiling above the frame limit makes a capability undispatchable.
+
+    `fs.read@1` shipped with a 1 MiB ceiling against a 256 KiB frame limit, so
+    every dispatch of it failed pydantic validation before the frame was sent.
+    Nothing caught it until the capability was exercised end to end, because
+    both numbers were individually reasonable.
+    """
+    for name, descriptor in CAPABILITY_CATALOG.items():
+        assert descriptor.max_output_bytes <= MAX_FRAME_BYTES, (
+            f"{name} declares {descriptor.max_output_bytes} bytes of output but a dispatch "
+            f"frame carries at most {MAX_FRAME_BYTES}"
+        )
+        assert descriptor.max_output_bytes >= 256, name

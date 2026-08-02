@@ -216,6 +216,11 @@ class NodeSession:
             SessionReadyFrame(
                 session_id=self.session_id,
                 granted_capabilities=self._registry.effective_capabilities(attached),
+                capability_scopes={
+                    name: scope.to_mapping()
+                    for name, scope in self._registry.scopes_of(attached).items()
+                    if name in self._registry.effective_capabilities(attached)
+                },
                 heartbeat_interval_seconds=self.limits.heartbeat_interval_seconds,
                 heartbeat_expiry_seconds=self.limits.heartbeat_expiry_seconds,
                 max_frame_bytes=self.limits.max_frame_bytes,

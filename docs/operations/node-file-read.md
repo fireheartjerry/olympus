@@ -266,3 +266,63 @@ before and after.
   false), and **nothing enabled reaches beyond the node it runs on**.
 - `shell.powershell`, `agent.claude`, `agent.codex`, `browser.session`, and
   `desktop.*` remain `RESERVED`.
+
+---
+
+## 14. Closing the loop: the agent can now actually run these
+
+`fs.read@1` and `fs.write@1` were implemented, enabled in the catalog, tested,
+and **unreachable**. The real node agent registered only
+`SystemInspectProvider`, so a granted, correctly scoped dispatch would have been
+refused as undeclared. Two capabilities that looked done could not run.
+
+### Scopes travel over the authenticated session
+
+`SessionReadyFrame` now carries `capability_scopes` alongside the granted names.
+The node does not read its bound from local configuration: a node that
+configured its own scope would be answering the question the grant exists to
+answer, and config drifts from the grant silently.
+
+Providers are therefore built **per session**, from what that session delivered.
+A scoped capability whose scope did not arrive gets no provider at all, so it is
+refused as undeclared rather than run unbounded — the same fail-closed direction
+the control plane takes. A malformed scope is likewise not a licence to
+improvise one.
+
+### "What I can serve" is not "what I may do"
+
+This needed a distinction the agent did not previously have. Its declared
+capabilities came from its providers — but the scoped providers cannot exist
+until a scope arrives, and a scope only arrives for a capability the node
+declared. Chicken-and-egg.
+
+So the agent declares what it is *able* to serve, independently of any provider.
+Declaring costs nothing: the control plane intersects the declaration with the
+grant, and a capability with no grant behind it is never dispatched. What the
+node may actually do remains entirely the control plane's decision.
+
+### Parameters and approvals reach admission
+
+`NodeDispatchService.run_job` now passes the request's parameters and approval
+into node selection. Without that, a scoped capability could never be admitted
+at all, and a mutating one would have been admitted without the approval that
+gates it. The approval check runs after a node is chosen, because the digest
+binds the node id and cannot be evaluated before one exists.
+
+### The bug only an end-to-end test could find
+
+`fs.read@1` shipped with a 1 MiB output ceiling against a `MAX_FRAME_BYTES`
+limit of 256 KiB. Every dispatch failed frame validation before it was sent —
+the capability was undispatchable, not generous. Both numbers were individually
+reasonable, which is why unit tests on either side were happy.
+
+The ceiling is now 200 000 bytes, and a catalog-wide test asserts that no
+capability declares more output than a dispatch frame can carry.
+
+### Status
+
+- **591 tests pass** under `-W error` with real PostgreSQL; lint and strict
+  types clean.
+- A scoped `fs.read@1` now runs end to end through the real handshake, session,
+  and dispatch path, and returns the file's contents.
+- Still granted to no node.

@@ -42,7 +42,7 @@ FILE_READ = "fs.read@1"
 
 # Absolute ceiling on a single read, independent of what a scope asks for. A
 # scope may lower this; nothing may raise it.
-MAX_FILE_READ_BYTES = 1_048_576
+MAX_FILE_READ_BYTES = 200_000
 
 # Windows reserved device names. Opening one of these does not read a file --
 # it talks to a device -- and they resolve regardless of the directory they

@@ -39,27 +39,33 @@ CONTROL_PLANE_KEY_ID = "olympus-control-plane-test"
 class Mesh:
     """A registry, one enrolled node, and the key material both sides use."""
 
-    def __init__(self) -> None:
+    def __init__(self, platform: NodePlatform = NodePlatform.WINDOWS) -> None:
+        self.platform = platform
         self.control_keys = generate_node_keypair()
         self.node_keys = generate_node_keypair()
         self.registry = NodeRegistry(heartbeat_interval_seconds=1, heartbeat_expiry_seconds=60)
         self.dispatch = NodeDispatchService(registry=self.registry)
         self.node_id = ""
 
-    async def enroll(self, capabilities: tuple[str, ...] = (SYSTEM_INSPECT.name,)) -> str:
+    async def enroll(
+        self,
+        capabilities: tuple[str, ...] = (SYSTEM_INSPECT.name,),
+        capability_scopes: dict[str, dict[str, object]] | None = None,
+    ) -> str:
         issued = await self.registry.issue_enrollment_token(
             node_name="jerry-windows",
             kind=NodeKind.WORKSTATION,
-            platform=NodePlatform.WINDOWS,
+            platform=self.platform,
             granted_capabilities=list(capabilities),
             issued_by="local-jerry",
+            capability_scopes=capability_scopes,
         )
         record = await self.registry.redeem_enrollment_token(
             presented=issued.presented,
             description=NodeDescription(
                 node_name="jerry-windows",
                 kind=NodeKind.WORKSTATION,
-                platform=NodePlatform.WINDOWS,
+                platform=self.platform,
                 architecture="AMD64",
                 agent_version="0.1.0",
                 declared_capabilities=capabilities,
@@ -109,13 +115,22 @@ class Connection:
                 await task
 
 
-async def connect(mesh: Mesh, provider: FakeCapabilityProvider | None = None) -> Connection:
+async def connect(
+    mesh: Mesh,
+    provider: FakeCapabilityProvider | None = None,
+    *,
+    providers: list[object] | None = None,
+    serves: tuple[str, ...] = (),
+) -> Connection:
     server_channel, client_channel = create_channel_pair()
     session = mesh.session(server_channel)
     agent = NodeAgent(
         identity=mesh.identity(),
-        providers=[provider or FakeCapabilityProvider()],
-        node_platform="windows",
+        providers=providers  # type: ignore[arg-type]
+        if providers is not None
+        else [provider or FakeCapabilityProvider()],
+        serves=serves,
+        node_platform=mesh.platform.value,
         architecture="AMD64",
     )
     ready = asyncio.Event()
@@ -801,3 +816,118 @@ async def test_a_handshake_that_dies_before_ready_leaves_no_phantom_node() -> No
             node_id=mesh.node_id, capability=SYSTEM_INSPECT.name
         )
     assert failure.value.reason is NodeReason.NODE_OFFLINE
+
+
+# --- scoped capabilities end to end -------------------------------------------------
+#
+# fs.read and fs.write were implemented, enabled in the catalog, and unreachable:
+# the agent registered only SystemInspectProvider, so a granted, scoped capability
+# would have been refused as undeclared. These close that loop through the real
+# handshake, the real session, and the real dispatch path.
+
+
+async def test_a_scoped_capability_runs_end_to_end(tmp_path) -> None:
+    directory = tmp_path / "granted"
+    directory.mkdir()
+    (directory / "report.txt").write_text("from the node\n", encoding="utf-8")
+
+    mesh = Mesh(platform=NodePlatform.LINUX)
+    await mesh.enroll(
+        capabilities=(SYSTEM_INSPECT.name, "fs.read@1"),
+        capability_scopes={"fs.read@1": {"roots": [str(directory)], "max_bytes": 4096}},
+    )
+    connection = await connect(mesh, providers=[], serves=("fs.read@1",))
+    try:
+        # The agent built the provider from the scope the session delivered.
+        assert "fs.read@1" in connection.agent.capability_scopes
+        outcome = await mesh.dispatch.run_job(
+            job(
+                job_id="read-1",
+                capability="fs.read@1",
+                parameters={"path": str(directory / "report.txt")},
+            ),
+        )
+        assert outcome.status is NodeJobStatus.SUCCEEDED
+        assert outcome.output["content"] == "from the node\n"
+    finally:
+        await connection.aclose()
+
+
+async def test_the_node_builds_no_provider_when_the_scope_never_arrives() -> None:
+    """Fail closed at the node, matching the control plane.
+
+    A granted capability whose scope did not arrive must be refused as
+    undeclared rather than run unbounded.
+    """
+    mesh = Mesh()
+    await mesh.enroll(capabilities=(SYSTEM_INSPECT.name,))
+    connection = await connect(mesh, providers=[], serves=("fs.read@1",))
+    try:
+        assert connection.agent.capability_scopes == {}
+        # Declared as servable, but with no scope there is no provider, so a
+        # dispatch would be refused rather than run unbounded.
+        assert "fs.read@1" not in connection.agent._providers  # noqa: SLF001
+    finally:
+        await connection.aclose()
+
+
+async def test_the_node_enforces_its_delivered_scope_not_the_request(tmp_path) -> None:
+    """The node re-checks containment even though the control plane already did.
+
+    Enforcement on one side only is enforcement that a bug on that side removes
+    entirely.
+    """
+    directory = tmp_path / "granted"
+    directory.mkdir()
+    secret = tmp_path / "secret.txt"
+    secret.write_text("private\n", encoding="utf-8")
+
+    mesh = Mesh(platform=NodePlatform.LINUX)
+    await mesh.enroll(
+        capabilities=(SYSTEM_INSPECT.name, "fs.read@1"),
+        capability_scopes={"fs.read@1": {"roots": [str(directory)], "max_bytes": 4096}},
+    )
+    connection = await connect(mesh, providers=[], serves=("fs.read@1",))
+    try:
+        provider = connection.agent._providers["fs.read@1"]  # noqa: SLF001 - asserting the bound
+        assert provider.scope.roots == (str(directory),)
+
+        from olympus.node_agent.capabilities import CapabilityRequest
+
+        async def report(message: str, percent: int | None) -> None:
+            return None
+
+        result = await provider.execute(
+            CapabilityRequest(
+                job_id="direct",
+                capability="fs.read@1",
+                parameters={"path": str(secret)},
+                deadline_seconds=15,
+                max_output_bytes=4096,
+            ),
+            report,
+        )
+        assert result.status == "rejected"
+        assert "private" not in result.message
+    finally:
+        await connection.aclose()
+
+
+async def test_the_scope_the_node_receives_is_the_one_the_grant_states(tmp_path) -> None:
+    # The node must not be able to widen what it was told, and the delivered
+    # scope must match the grant rather than anything the node declared.
+    directory = tmp_path / "granted"
+    directory.mkdir()
+
+    mesh = Mesh(platform=NodePlatform.LINUX)
+    await mesh.enroll(
+        capabilities=(SYSTEM_INSPECT.name, "fs.read@1"),
+        capability_scopes={"fs.read@1": {"roots": [str(directory)], "max_bytes": 1024}},
+    )
+    connection = await connect(mesh, providers=[], serves=("fs.read@1",))
+    try:
+        delivered = connection.agent.capability_scopes["fs.read@1"]
+        assert delivered["roots"] == [str(directory)]
+        assert delivered["max_bytes"] == 1024
+    finally:
+        await connection.aclose()

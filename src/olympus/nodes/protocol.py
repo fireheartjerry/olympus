@@ -92,6 +92,11 @@ class SessionReadyFrame(_Frame):
     granted_capabilities: tuple[CapabilityName, ...] = Field(
         default=(), max_length=MAX_DECLARED_CAPABILITIES
     )
+    # The bounds attached to those grants, delivered over the authenticated
+    # session rather than configured on the node. A node that decided its own
+    # scope would be answering the one question the control plane exists to
+    # answer, and a scope read from local config drifts from the grant silently.
+    capability_scopes: dict[CapabilityName, dict[str, Any]] = Field(default_factory=dict)
     heartbeat_interval_seconds: int = Field(ge=1, le=3600)
     heartbeat_expiry_seconds: int = Field(ge=2, le=7200)
     max_frame_bytes: int = Field(ge=1024, le=MAX_FRAME_BYTES)

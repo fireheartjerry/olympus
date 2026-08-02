@@ -864,11 +864,15 @@ class NodeRegistry:
         capability: str,
         node_id: str | None = None,
         parameters: Mapping[str, Any] | None = None,
+        approval: Any | None = None,
     ) -> NodeRecord:
         """Pick the eligible node for a capability, preferring the least loaded."""
         if node_id is not None:
             return await self.assert_dispatchable(
-                node_id=node_id, capability=capability, parameters=parameters
+                node_id=node_id,
+                capability=capability,
+                parameters=parameters,
+                approval=approval,
             )
         require_dispatchable_capability(capability)
         async with self._store.transaction() as tx:
@@ -911,7 +915,17 @@ class NodeRegistry:
                 )
             eligible = scoped
         eligible.sort(key=lambda record: (_active_jobs(record), record.node_id))
-        return eligible[0]
+        chosen = eligible[0]
+        # The approval gate is per-node, because the digest binds the node id.
+        # It can only be checked once a node has been chosen.
+        if requires_approval(capability):
+            self._assert_approved(
+                capability=capability,
+                node_id=chosen.node_id,
+                parameters=parameters or {},
+                approval=approval,
+            )
+        return chosen
 
     async def enrollment_tokens(self) -> tuple[EnrollmentTokenRecord, ...]:
         async with self._store.transaction() as tx:

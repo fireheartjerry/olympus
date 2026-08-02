@@ -117,6 +117,7 @@ class NodeAgent:
         identity: AgentIdentity,
         providers: Sequence[CapabilityProvider],
         node_platform: str | None = None,
+        serves: Sequence[str] = (),
         architecture: str | None = None,
         ledger_capacity: int = LEDGER_CAPACITY,
     ) -> None:
@@ -125,6 +126,9 @@ class NodeAgent:
         for provider in providers:
             for capability in provider.capabilities:
                 self._providers[capability] = provider
+        # Capabilities this agent can serve once a scope arrives, declared even
+        # though no provider exists for them yet.
+        self._serves: tuple[str, ...] = tuple(serves)
         self.node_platform = node_platform or platform.system().lower()
         self.architecture = architecture or platform.machine() or "unknown"
         self._ledger = _ResultLedger(ledger_capacity)
@@ -136,14 +140,79 @@ class NodeAgent:
         self._heartbeat_sequence = 0
         self.session: SessionReadyFrame | None = None
         self.granted_capabilities: tuple[str, ...] = ()
+        # Scopes as the control plane stated them for this session. Never read
+        # from local configuration: a node that configured its own bound would
+        # be answering the question the grant exists to answer.
+        self.capability_scopes: dict[str, dict[str, object]] = {}
 
     @property
     def declared_capabilities(self) -> tuple[str, ...]:
-        return tuple(sorted(self._providers))
+        """What this agent is *able* to serve — not what it may do.
+
+        Scoped capabilities appear here before any scope exists, because their
+        provider cannot be built until the session delivers one, and a node
+        that declared nothing would never be sent the grant that would let it
+        build the provider. Declaring costs the node nothing: the control plane
+        intersects this with the grant, and a capability with no grant behind it
+        is never dispatched.
+        """
+        return tuple(sorted(set(self._providers) | set(self._serves)))
 
     @property
     def active_jobs(self) -> int:
         return len(self._running)
+
+    def _install_scoped_providers(self) -> None:
+        """Build the scoped providers from what the session actually granted.
+
+        These are installed per session rather than at construction, because
+        their bound comes from the control plane and can change between
+        sessions. Building them up front from local config would mean the node
+        enforcing a scope nobody granted it.
+
+        A scoped capability whose scope did not arrive gets **no provider**, so
+        it is refused as undeclared rather than run unbounded. That is the same
+        fail-closed direction the control plane takes.
+        """
+        from olympus.node_agent.file_read import FileReadProvider
+        from olympus.node_agent.file_write import FileWriteProvider
+        from olympus.nodes.models import NodePlatform
+        from olympus.nodes.scopes import (
+            FILE_READ,
+            FILE_WRITE,
+            FileReadScope,
+            FileWriteScope,
+            ScopeError,
+        )
+
+        try:
+            node_platform = NodePlatform(self.node_platform)
+        except ValueError:
+            node_platform = NodePlatform.UNKNOWN
+
+        # Written out per capability rather than looped over pairs: the scope
+        # type and the provider type have to match, and a loop erases exactly
+        # that correlation.
+        self._providers.pop(FILE_READ, None)
+        read_scope = self.capability_scopes.get(FILE_READ)
+        if FILE_READ in self.granted_capabilities and read_scope:
+            try:
+                self._providers[FILE_READ] = FileReadProvider(
+                    scope=FileReadScope.from_mapping(read_scope, platform=node_platform)
+                )
+            except ScopeError:
+                # A malformed scope is not a licence to improvise one.
+                pass
+
+        self._providers.pop(FILE_WRITE, None)
+        write_scope = self.capability_scopes.get(FILE_WRITE)
+        if FILE_WRITE in self.granted_capabilities and write_scope:
+            try:
+                self._providers[FILE_WRITE] = FileWriteProvider(
+                    scope=FileWriteScope.from_mapping(write_scope, platform=node_platform)
+                )
+            except ScopeError:
+                pass
 
     def _enqueue(self, frame: ClientFrame) -> bool:
         """Queue a frame without blocking; report whether it will actually be sent."""
@@ -248,6 +317,8 @@ class NodeAgent:
             raise NodeMeshError(NodeReason.HANDSHAKE_FRAME_UNEXPECTED, "expected session-ready")
         self.session = ready
         self.granted_capabilities = ready.granted_capabilities
+        self.capability_scopes = dict(ready.capability_scopes)
+        self._install_scoped_providers()
         return ready
 
     async def _sender_loop(self, channel: NodeChannel) -> None:

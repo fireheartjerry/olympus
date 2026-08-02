@@ -35,6 +35,9 @@ class NodeJobRequest:
     authority: DispatchAuthority
     parameters: dict[str, Any] = field(default_factory=dict)
     node_id: str | None = None
+    # The approval for a mutating capability, verified by the registry against a
+    # digest computed from this request's own parameters.
+    approval: Any | None = None
     attempt: int = 1
     deadline_seconds: int | None = None
     max_output_bytes: int | None = None
@@ -103,8 +106,14 @@ class NodeDispatchService:
     ) -> NodeJobOutcome:
         """Admit, dispatch, and await one node job, recording the audit trail."""
         descriptor = require_dispatchable_capability(request.capability)
+        # Parameters and approval travel with the admission decision. Without
+        # them a scoped capability can never be admitted, and a mutating one
+        # would be admitted without the approval that gates it.
         record = await self._registry.select_node(
-            capability=request.capability, node_id=request.node_id
+            capability=request.capability,
+            node_id=request.node_id,
+            parameters=request.parameters,
+            approval=request.approval,
         )
 
         # Re-check the kill switch immediately before the frame is written so a
