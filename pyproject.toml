@@ -24,6 +24,14 @@ dependencies = [
   "websockets>=14,<16",
 ]
 
+[project.optional-dependencies]
+# Only the process that pushes segments to S3 and signs them through KMS needs
+# an AWS SDK. Offline verification deliberately does not, so it stays outside
+# the core dependency set: an air-gapped verifier installs nothing from AWS.
+aws = [
+  "boto3>=1.35,<2",
+]
+
 [dependency-groups]
 dev = [
   "editables==0.5",

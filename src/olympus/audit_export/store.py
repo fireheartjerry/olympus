@@ -1,5 +1,6 @@
 import hashlib
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Protocol
 
 
@@ -11,6 +12,23 @@ class ObjectStoreError(Exception):
     """Raised when the backing object store refuses or fails a request."""
 
 
+@dataclass(frozen=True)
+class StoredObject:
+    """Who a stored object actually is, as the store reports it.
+
+    A signature that named only the key would still cover a rolled-back
+    version of that key, so the version ID travels with every write and is
+    bound into the attestation. The retention fields come back for the same
+    reason: "this was sealed" is a claim worth signing, and a claim worth
+    signing has to be observed rather than assumed.
+    """
+
+    key: str
+    version_id: str
+    retention_mode: str
+    retention_until: str
+
+
 class WriteOnceObjectStore(Protocol):
     """The narrow storage surface audit export needs.
 
@@ -19,11 +37,13 @@ class WriteOnceObjectStore(Protocol):
     here to call.
     """
 
-    async def put_once(self, key: str, body: bytes) -> None:
+    async def put_once(self, key: str, body: bytes) -> StoredObject:
         """Store ``body`` at ``key``, refusing to replace an existing object."""
         ...
 
     async def get(self, key: str) -> bytes | None: ...
+
+    async def head(self, key: str) -> StoredObject | None: ...
 
     async def list_keys(self, prefix: str) -> tuple[str, ...]: ...
 
@@ -37,14 +57,31 @@ class InMemoryWriteOnceStore:
     """
 
     objects: dict[str, bytes] = field(default_factory=dict)
+    identities: dict[str, StoredObject] = field(default_factory=dict)
+    retention_mode: str = "GOVERNANCE"
+    retention_until: str = "2099-01-01T00:00:00+00:00"
 
-    async def put_once(self, key: str, body: bytes) -> None:
+    async def put_once(self, key: str, body: bytes) -> StoredObject:
         if key in self.objects:
             raise ObjectAlreadyExists(key)
         self.objects[key] = body
+        # A stable, content-derived version id keeps the fake deterministic
+        # while still being distinct per object, so a test that swaps two
+        # objects' identities produces a real mismatch rather than a match.
+        identity = StoredObject(
+            key=key,
+            version_id=hashlib.sha256(key.encode("utf-8") + body).hexdigest()[:32],
+            retention_mode=self.retention_mode,
+            retention_until=self.retention_until,
+        )
+        self.identities[key] = identity
+        return identity
 
     async def get(self, key: str) -> bytes | None:
         return self.objects.get(key)
+
+    async def head(self, key: str) -> StoredObject | None:
+        return self.identities.get(key)
 
     async def list_keys(self, prefix: str) -> tuple[str, ...]:
         return tuple(sorted(key for key in self.objects if key.startswith(prefix)))
@@ -120,7 +157,28 @@ class S3ObjectLockStore:
             )
         return str(mode), int(days)
 
-    async def put_once(self, key: str, body: bytes) -> None:
+    @property
+    def bucket(self) -> str:
+        return self._bucket
+
+    async def head(self, key: str) -> StoredObject | None:
+        import asyncio
+
+        def _head() -> StoredObject | None:
+            try:
+                response = self._client.head_object(Bucket=self._bucket, Key=key)
+            except Exception as exc:  # noqa: BLE001 - mapped below
+                if _is_not_found(exc):
+                    return None
+                raise
+            return _identity_from_response(key, response)
+
+        try:
+            return await asyncio.to_thread(_head)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a typed failure
+            raise ObjectStoreError(f"failed to head {key}") from exc
+
+    async def put_once(self, key: str, body: bytes) -> StoredObject:
         import asyncio
 
         if await self.get(key) is not None:
@@ -128,8 +186,8 @@ class S3ObjectLockStore:
         checksum = hashlib.sha256(body).digest()
         import base64
 
-        def _put() -> None:
-            self._client.put_object(
+        def _put() -> dict[str, Any]:
+            response: dict[str, Any] = self._client.put_object(
                 Bucket=self._bucket,
                 Key=key,
                 Body=body,
@@ -141,13 +199,31 @@ class S3ObjectLockStore:
                 # permission that can also reduce it.
                 IfNoneMatch="*",
             )
+            return response
 
         try:
-            await asyncio.to_thread(_put)
+            response = await asyncio.to_thread(_put)
         except Exception as exc:  # noqa: BLE001 - surfaced as a typed failure
             if _is_precondition_failure(exc):
                 raise ObjectAlreadyExists(key) from exc
             raise ObjectStoreError(f"failed to write {key}") from exc
+
+        identity = _identity_from_response(key, response)
+        if identity.retention_mode and identity.retention_until:
+            return identity
+        # PutObject does not echo the retention the bucket default applied, so
+        # read it back. This is not bookkeeping: the attestation is about to
+        # assert that this object is sealed, and asserting it without having
+        # observed it would make the signature attest to a guess.
+        observed = await self.head(key)
+        if observed is None:
+            raise ObjectStoreError(f"wrote {key} but cannot read back its identity")
+        if not observed.retention_mode or not observed.retention_until:
+            raise ObjectStoreError(
+                f"{key} was stored without Object Lock retention; "
+                "refusing to attest that an unsealed object is sealed"
+            )
+        return observed
 
     async def get(self, key: str) -> bytes | None:
         import asyncio
@@ -188,6 +264,22 @@ class S3ObjectLockStore:
             return await asyncio.to_thread(_list)
         except Exception as exc:  # noqa: BLE001 - surfaced as a typed failure
             raise ObjectStoreError(f"failed to list {prefix}") from exc
+
+
+def _identity_from_response(key: str, response: dict[str, Any]) -> StoredObject:
+    # boto3 hands back a datetime here, but the attestation has to be a stable
+    # string: ISO-8601 has one spelling, and repr() of a datetime does not.
+    retain_until: Any = response.get("ObjectLockRetainUntilDate")
+    if isinstance(retain_until, datetime):
+        retention_until = retain_until.isoformat()
+    else:
+        retention_until = str(retain_until) if retain_until else ""
+    return StoredObject(
+        key=key,
+        version_id=str(response.get("VersionId") or ""),
+        retention_mode=str(response.get("ObjectLockMode") or ""),
+        retention_until=retention_until,
+    )
 
 
 def _error_code(exc: Exception) -> str:

@@ -54,3 +54,45 @@ def test_rejects_unsafe_production_settings(field: str, value: object) -> None:
 def test_rejects_development_authentication_field() -> None:
     with pytest.raises(ValidationError):
         valid_settings(dev_command_token=SecretStr("x" * 32))
+
+
+def test_explicit_tls_port_in_origin_is_not_part_of_the_rp_id() -> None:
+    """A dedicated port is an origin detail, never a relying-party identity.
+
+    WebAuthn scopes a credential to the RP ID, which is a bare domain and
+    cannot carry a port; the port belongs to the origin the browser checks
+    separately. Olympus binds its own TLS listener on a high port because 443
+    and 8443 already belong to other services, so this is the production
+    configuration, not a corner case. Validation that folded the port into the
+    RP ID comparison would reject the real deployment.
+    """
+    settings = valid_settings(
+        webauthn_origin="https://vps-41e741fc.tail70f263.ts.net:9443",
+        webauthn_rp_id="vps-41e741fc.tail70f263.ts.net",
+    )
+
+    assert str(settings.webauthn_origin).rstrip("/") == (
+        "https://vps-41e741fc.tail70f263.ts.net:9443"
+    )
+    assert settings.webauthn_rp_id == "vps-41e741fc.tail70f263.ts.net"
+    assert settings.webauthn_origin.host == settings.webauthn_rp_id
+
+
+def test_port_bearing_origin_still_requires_the_rp_id_to_equal_the_hostname() -> None:
+    # The port must not become a loophole: everything else about the origin and
+    # RP ID binding stays exactly as strict as it is without one.
+    with pytest.raises(ValidationError):
+        valid_settings(
+            webauthn_origin="https://vps-41e741fc.tail70f263.ts.net:9443",
+            webauthn_rp_id="tail70f263.ts.net",
+        )
+    with pytest.raises(ValidationError):
+        valid_settings(
+            webauthn_origin="https://vps-41e741fc.tail70f263.ts.net:9443",
+            webauthn_rp_id="vps-41e741fc.tail70f263.ts.net:9443",
+        )
+    with pytest.raises(ValidationError):
+        valid_settings(
+            webauthn_origin="http://vps-41e741fc.tail70f263.ts.net:9443",
+            webauthn_rp_id="vps-41e741fc.tail70f263.ts.net",
+        )

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "comment": "Public verification material only. This file is committed on purpose: an offline verifier must be able to check exported audit segments with nothing but this repository and the downloaded bytes. It contains no private key and no credential. The private key exists only inside AWS KMS and cannot be exported from it.",
+  "signers": [
+    {
+      "key_id": "arn:aws:kms:us-west-2:892077329800:key/f67d65fc-829e-4ed8-b9a1-e3d9782a3ae2",
+      "alias": "alias/olympus-audit-signer",
+      "algorithm": "ED25519_SHA_512",
+      "public_key_der_b64": "MCowBQYDK2VwAyEAmyWAyfnPsjTYus8ldTu4HJ/gQYmqpfvpVpSrLmfj8gQ=",
+      "public_key_der_sha256": "96e0e23e26da129e280c34caff95bd79bab4c3e179c8b001093584adb6ab2f6f",
+      "not_before": "2026-08-01T00:00:00+00:00",
+      "not_after": "2028-08-01T00:00:00+00:00",
+      "revoked_at": null
+    }
+  ]
+}

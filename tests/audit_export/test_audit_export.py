@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 
@@ -216,6 +217,18 @@ async def test_object_lock_store_writes_with_retention_and_refuses_replacement()
         def put_object(self, **kwargs):
             self.calls.append(kwargs)
             self.objects[kwargs["Key"]] = kwargs["Body"]
+            # Real S3 echoes the version but not the retention the bucket
+            # default applied, which is why the store reads it back.
+            return {"VersionId": f"v{len(self.objects)}"}
+
+        def head_object(self, Bucket, Key):  # noqa: N803 - boto3 casing
+            if Key not in self.objects:
+                raise _NoSuchKey()
+            return {
+                "VersionId": f"v{sorted(self.objects).index(Key) + 1}",
+                "ObjectLockMode": "GOVERNANCE",
+                "ObjectLockRetainUntilDate": datetime(2099, 1, 1, tzinfo=UTC),
+            }
 
         def get_object(self, Bucket, Key):  # noqa: N803 - boto3 casing
             if Key not in self.objects:
