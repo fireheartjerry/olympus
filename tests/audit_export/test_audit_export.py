@@ -8,6 +8,7 @@ from olympus.audit_export.models import build_segments
 from olympus.audit_export.store import (
     InMemoryWriteOnceStore,
     ObjectAlreadyExists,
+    ObjectStoreError,
     S3ObjectLockStore,
 )
 from olympus.nodes.audit import AuditAction, AuditDecision, AuditDraft, NodeAuditLog
@@ -171,11 +172,39 @@ async def test_segment_keys_sort_in_sequence_order() -> None:
     assert keys[0].endswith("000000000001-000000000100.json")
 
 
-async def test_object_lock_store_rejects_an_unsafe_configuration() -> None:
+async def test_object_lock_store_rejects_an_unsafe_expectation() -> None:
     with pytest.raises(ValueError):
-        S3ObjectLockStore(bucket="b", client=object(), retention_days=0)
+        S3ObjectLockStore(bucket="b", client=object(), expected_retention_days=0)
     with pytest.raises(ValueError):
-        S3ObjectLockStore(bucket="b", client=object(), retention_days=1, retention_mode="NONE")
+        S3ObjectLockStore(bucket="b", client=object(), expected_retention_mode="NONE")
+
+
+async def test_a_bucket_without_default_retention_is_refused() -> None:
+    """Relying on the bucket default is only safe if the default exists."""
+
+    class NoRetention:
+        def get_object_lock_configuration(self, Bucket):  # noqa: N803 - boto3 casing
+            return {"ObjectLockConfiguration": {"ObjectLockEnabled": "Enabled"}}
+
+    store = S3ObjectLockStore(bucket="b", client=NoRetention())
+    with pytest.raises(ObjectStoreError, match="no default Object Lock retention"):
+        await store.assert_retention_configured()
+
+
+async def test_a_weaker_retention_than_expected_is_refused() -> None:
+    class Weak:
+        def get_object_lock_configuration(self, Bucket):  # noqa: N803 - boto3 casing
+            return {
+                "ObjectLockConfiguration": {
+                    "Rule": {"DefaultRetention": {"Mode": "GOVERNANCE", "Days": 7}}
+                }
+            }
+
+    store = S3ObjectLockStore(
+        bucket="b", client=Weak(), expected_retention_days=30, expected_retention_mode="GOVERNANCE"
+    )
+    with pytest.raises(ObjectStoreError, match="retains for 7 days"):
+        await store.assert_retention_configured()
 
 
 async def test_object_lock_store_writes_with_retention_and_refuses_replacement() -> None:
@@ -209,16 +238,16 @@ async def test_object_lock_store_writes_with_retention_and_refuses_replacement()
             return self._data
 
     client = FakeS3()
-    store = S3ObjectLockStore(
-        bucket="olympus-audit", client=client, retention_days=30, retention_mode="COMPLIANCE"
-    )
+    store = S3ObjectLockStore(bucket="olympus-audit", client=client)
     exporter = AuditExporter(store=store, chain="node-mesh")
     result = await exporter.export(_chain(3))
     assert result.events_exported == 3
 
     call = client.calls[0]
-    assert call["ObjectLockMode"] == "COMPLIANCE"
-    assert call["ObjectLockRetainUntilDate"] is not None
+    # The exporter must not name a retention: doing so would require the
+    # permission that can also shorten one.
+    assert "ObjectLockMode" not in call
+    assert "ObjectLockRetainUntilDate" not in call
     assert call["IfNoneMatch"] == "*"
     assert call["ChecksumSHA256"]
 

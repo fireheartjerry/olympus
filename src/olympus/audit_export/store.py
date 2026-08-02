@@ -53,10 +53,15 @@ class InMemoryWriteOnceStore:
 class S3ObjectLockStore:
     """S3 with Object Lock retention, used through a write-once surface.
 
-    Retention is applied per object at write time. A bucket-level default
-    would also work, but stating it on the write keeps the guarantee visible
-    where the object is created rather than in configuration someone can
-    later relax without touching this code.
+    Retention comes from the bucket's default Object Lock rule, not from the
+    write. Naming a retention on PutObject requires ``s3:PutObjectRetention``,
+    and that is precisely the permission that lets a caller set a *shorter*
+    retention. An exporter that can state its own retention can weaken it, so
+    the exporter states none and holds no such permission.
+
+    ``assert_retention_configured`` exists because relying on the bucket
+    default makes a misconfigured bucket silently accept unprotected writes.
+    Checking once at startup turns that into a loud failure.
     """
 
     def __init__(
@@ -64,22 +69,56 @@ class S3ObjectLockStore:
         *,
         bucket: str,
         client: Any,
-        retention_days: int,
-        retention_mode: str = "COMPLIANCE",
+        expected_retention_days: int | None = None,
+        expected_retention_mode: str | None = None,
     ) -> None:
-        if retention_days < 1:
-            raise ValueError("retention_days must be at least one day")
-        if retention_mode not in {"COMPLIANCE", "GOVERNANCE"}:
-            raise ValueError("retention_mode must be COMPLIANCE or GOVERNANCE")
+        if expected_retention_days is not None and expected_retention_days < 1:
+            raise ValueError("expected_retention_days must be at least one day")
+        if expected_retention_mode is not None and expected_retention_mode not in {
+            "COMPLIANCE",
+            "GOVERNANCE",
+        }:
+            raise ValueError("expected_retention_mode must be COMPLIANCE or GOVERNANCE")
         self._bucket = bucket
         self._client = client
-        self._retention_days = retention_days
-        self._retention_mode = retention_mode
+        self._expected_days = expected_retention_days
+        self._expected_mode = expected_retention_mode
 
-    def _retain_until(self) -> Any:
-        from datetime import UTC, datetime, timedelta
+    async def assert_retention_configured(self) -> tuple[str, int]:
+        """Confirm the bucket really does seal what this exporter writes."""
+        import asyncio
 
-        return datetime.now(UTC) + timedelta(days=self._retention_days)
+        def _read() -> dict[str, Any]:
+            response: dict[str, Any] = self._client.get_object_lock_configuration(
+                Bucket=self._bucket
+            )
+            return response
+
+        try:
+            configuration = await asyncio.to_thread(_read)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a typed failure
+            raise ObjectStoreError(
+                f"{self._bucket} has no readable Object Lock configuration"
+            ) from exc
+
+        rule = configuration.get("ObjectLockConfiguration", {}).get("Rule", {})
+        retention = rule.get("DefaultRetention", {})
+        mode = retention.get("Mode")
+        days = retention.get("Days")
+        if not mode or not days:
+            raise ObjectStoreError(
+                f"{self._bucket} has no default Object Lock retention; "
+                "exported audit segments would not be sealed"
+            )
+        if self._expected_mode is not None and mode != self._expected_mode:
+            raise ObjectStoreError(
+                f"{self._bucket} retention mode is {mode}, expected {self._expected_mode}"
+            )
+        if self._expected_days is not None and int(days) < self._expected_days:
+            raise ObjectStoreError(
+                f"{self._bucket} retains for {days} days, expected at least {self._expected_days}"
+            )
+        return str(mode), int(days)
 
     async def put_once(self, key: str, body: bytes) -> None:
         import asyncio
@@ -97,8 +136,9 @@ class S3ObjectLockStore:
                 # S3 verifies this itself, so a body corrupted in transit is
                 # rejected by the store rather than sealed under retention.
                 ChecksumSHA256=base64.b64encode(checksum).decode("ascii"),
-                ObjectLockMode=self._retention_mode,
-                ObjectLockRetainUntilDate=self._retain_until(),
+                # No ObjectLock* arguments: the bucket default seals this
+                # object, and asking for retention here would require the
+                # permission that can also reduce it.
                 IfNoneMatch="*",
             )
 
