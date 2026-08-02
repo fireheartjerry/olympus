@@ -276,3 +276,18 @@ def test_a_closed_bootstrap_still_refuses_a_wrong_origin_first() -> None:
 
     assert response.status_code == 403
     assert response.json() == {"detail": "request denied"}
+
+
+def test_page_surfaces_the_servers_reason_rather_than_a_fixed_string() -> None:
+    """The operator must not be told "denied" when the server said something else.
+
+    A hardcoded failure message cost a real ceremony: a closed bootstrap
+    reported "Request denied", which reads as an origin or credential problem,
+    when the server had actually answered "ceremony unavailable". The page now
+    shows what the server said — which is already written to disclose nothing
+    about *why* a ceremony is unavailable, so surfacing it leaks nothing.
+    """
+    page = client().get("/", headers={"Host": "olympus.tail-example.ts.net"}).text
+
+    assert "throw new Error('Request denied')" not in page
+    assert ".detail" in page

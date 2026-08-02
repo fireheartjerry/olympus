@@ -348,7 +348,8 @@ if(r.userHandle)response.userHandle=bufToB64(r.userHandle);
 return {id:c.id,rawId:bufToB64(c.rawId),type:c.type,response,
 clientExtensionResults:c.getClientExtensionResults()}}
 async function post(path,body={}){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},
-body:JSON.stringify(body)});if(!r.ok)throw new Error('Request denied');return r.json()}
+body:JSON.stringify(body)});if(!r.ok){let d='';try{d=((await r.json())||{}).detail||''}catch(e){}
+throw new Error(d?d+' ('+r.status+')':'Refused ('+r.status+')')}return r.json()}
 async function ceremony(kind,extra={}){const start=await post(`/v1/webauthn/${kind}/options`,extra);
 const publicKey=decode(start.options);const c=kind==='register'?await navigator.credentials.create({publicKey}):
 await navigator.credentials.get({publicKey});localStorage.setItem('olympusCredentialId',bufToB64(c.rawId));
