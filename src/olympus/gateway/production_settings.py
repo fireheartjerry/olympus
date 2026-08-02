@@ -57,6 +57,12 @@ class ProductionGatewaySettings(BaseSettings):
     audit_export_bucket: str | None = None
     audit_export_kms_key_id: str | None = None
     audit_export_chain: str = "authority-production"
+    # The node mesh keeps its own hash chain — enrollments, grants,
+    # revocations, dispatches, freezes. Exporting only the authority chain
+    # would leave every record of what was done *to machines* on the one host
+    # that could rewrite it.
+    audit_export_node_chain: str = "node-mesh-production"
+    audit_export_node_database_url: SecretStr | None = None
     audit_export_region: str = "us-west-2"
     audit_export_profile: str | None = None
     audit_export_retention_days: int = Field(default=30, ge=1)

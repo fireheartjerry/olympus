@@ -47,6 +47,46 @@ def _aws_clients(settings: ProductionGatewaySettings) -> tuple[Any, Any]:
     return session.client("s3"), session.client("kms")
 
 
+async def _export_chain(
+    *,
+    chain: str,
+    events: Any,
+    store: S3ObjectLockStore,
+    bucket: str,
+    kms_key_id: str,
+    kms: Any,
+) -> tuple[int, bool, tuple[str, ...]]:
+    """Export one chain and verify it. Returns (events written, authentic, problems)."""
+    exporter = AuditExporter(
+        store=store,
+        chain=chain,
+        bucket=bucket,
+        signer=KmsEd25519Signer(key_id=kms_key_id, client=kms),
+    )
+    result = await exporter.export(events)
+    authenticity = await exporter.verify_authenticity(load_keyring())
+    return result.events_exported, authenticity.authentic, authenticity.problems
+
+
+async def _node_mesh_events(settings: ProductionGatewaySettings) -> Any:
+    """Read the node-mesh chain, if this deployment has one.
+
+    Separate from the authority chain because they live in different stores
+    with different drivers. A deployment with no node mesh exports nothing here
+    rather than failing: an absent chain is not a broken one.
+    """
+    dsn = settings.audit_export_node_database_url
+    if dsn is None:
+        return ()
+    from olympus.persistence.postgres_store import PostgresNodeMeshStore
+
+    store = await PostgresNodeMeshStore.connect(dsn.get_secret_value(), min_size=1, max_size=2)
+    try:
+        return await store.audit_events()
+    finally:
+        await store.close()
+
+
 async def run_once(settings: ProductionGatewaySettings | None = None) -> int:
     """Export everything not yet off-host, then prove what is there is sound.
 
@@ -80,37 +120,51 @@ async def run_once(settings: ProductionGatewaySettings | None = None) -> int:
         )
         events = await repository.audit_events()
 
-        exporter = AuditExporter(
-            store=store,
+        exported, authentic, problems = await _export_chain(
             chain=settings.audit_export_chain,
+            events=events,
+            store=store,
             bucket=settings.audit_export_bucket,
-            signer=KmsEd25519Signer(key_id=settings.audit_export_kms_key_id, client=kms),
+            kms_key_id=settings.audit_export_kms_key_id,
+            kms=kms,
         )
-        result = await exporter.export(events)
-        authenticity = await exporter.verify_authenticity(load_keyring())
     finally:
         await engine.dispose()
 
+    # The node-mesh chain is exported in the same run. Two chains rather than
+    # one because they record different things about different subjects, and
+    # merging them would mean inventing an ordering between events that never
+    # had one.
+    node_events = await _node_mesh_events(settings)
+    node_exported = 0
+    if node_events:
+        node_exported, node_authentic, node_problems = await _export_chain(
+            chain=settings.audit_export_node_chain,
+            events=node_events,
+            store=store,
+            bucket=settings.audit_export_bucket,
+            kms_key_id=settings.audit_export_kms_key_id,
+            kms=kms,
+        )
+        authentic = authentic and node_authentic
+        problems = problems + node_problems
+
     stamp = datetime.now(UTC).isoformat(timespec="seconds")
     print(
-        f"{stamp} chain={settings.audit_export_chain} "
-        f"local={len(events)} exported={result.events_exported} "
-        f"segments={result.segments_written} through={result.last_exported_sequence} "
+        f"{stamp} authority(local={len(events)} exported={exported}) "
+        f"node-mesh(local={len(node_events)} exported={node_exported}) "
         f"sealed={mode}/{days}d"
     )
 
-    if not authenticity.authentic:
+    if not authentic:
         # Loud and non-zero. A silent failure here means the operator believes
         # there is off-host evidence when there may not be.
-        for problem in authenticity.problems:
+        for problem in problems:
             print(f"  NOT AUTHENTIC: {problem}", file=sys.stderr)
         raise SystemExit(1)
 
-    print(
-        f"  verified {authenticity.segments} segment(s), {authenticity.events} event(s) "
-        "signed by a pinned key and linked to their predecessors"
-    )
-    return result.events_exported
+    print("  both chains verify: signed by a pinned key and linked to their predecessors")
+    return exported + node_exported
 
 
 def main(argv: list[str] | None = None) -> int:

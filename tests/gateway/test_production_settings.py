@@ -204,3 +204,21 @@ def test_audit_export_chain_must_be_named() -> None:
             audit_export_kms_key_id="arn:aws:kms:us-west-2:1:key/abc",
             audit_export_chain="   ",
         )
+
+
+def test_the_node_mesh_chain_is_exported_separately_from_the_authority_chain() -> None:
+    """Two chains, not one merged stream.
+
+    They record different things about different subjects, and merging them
+    would mean inventing an ordering between events that never had one.
+    """
+    settings = valid_settings()
+
+    assert settings.audit_export_chain == "authority-production"
+    assert settings.audit_export_node_chain == "node-mesh-production"
+    assert settings.audit_export_chain != settings.audit_export_node_chain
+
+
+def test_a_deployment_without_a_node_mesh_exports_no_node_chain() -> None:
+    # An absent chain is not a broken one.
+    assert valid_settings().audit_export_node_database_url is None
