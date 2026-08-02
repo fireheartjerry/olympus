@@ -181,11 +181,23 @@ def create_production_app(
         ):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="request denied")
 
+    # Enrollment is a one-time ceremony. Once it is switched off, offering the
+    # button anyway invites the operator to tap a control that can only ever
+    # fail, and to read that failure as a broken deployment. This keys off the
+    # configuration flag rather than whether a credential exists, so the page
+    # reveals only what the operator already set — never credential state.
+    register_button = (
+        '<button onclick="register()">Register Face ID</button>'
+        if bootstrap_enabled
+        else '<p class="closed">Enrollment is closed on this gateway.</p>'
+    )
+    page = _MOBILE_PAGE.replace("{register_button}", register_button)
+
     @app.get("/", response_class=HTMLResponse)
     async def mobile_page(request: Request) -> str:
         if request.headers.get("host") != webauthn_host:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="request denied")
-        return _MOBILE_PAGE
+        return page
 
     @app.get("/health/live")
     async def health_live() -> dict[str, str]:
@@ -326,10 +338,11 @@ body{font:16px system-ui;background:#090b10;color:#f6f7fb;max-width:34rem;margin
 h1{font-size:2rem}button{display:block;width:100%;padding:1rem;margin:1rem 0;border:0;border-radius:.8rem;
 background:#6d5dfc;color:white;font-weight:700;font-size:1rem}button:active{transform:scale(.99)}
 #status{padding:1rem;background:#151925;border-radius:.8rem;min-height:1.5rem}
+.closed{padding:1rem;background:#151925;border-radius:.8rem;color:#9aa3b8;margin:1rem 0}
 </style>
 <h1>Olympus Authority</h1>
 <p>Face ID grants one bounded authority epoch. Discord messages cannot grant authority.</p>
-<button onclick="register()">Register Face ID</button>
+{register_button}
 <button onclick="authorize()">Authorize for 24 hours</button>
 <button onclick="recover()">Recover and unfreeze</button>
 <div id="status">Ready.</div>

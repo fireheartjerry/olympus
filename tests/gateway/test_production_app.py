@@ -291,3 +291,49 @@ def test_page_surfaces_the_servers_reason_rather_than_a_fixed_string() -> None:
 
     assert "throw new Error('Request denied')" not in page
     assert ".detail" in page
+
+
+def closed_page() -> str:
+    app = create_production_app(
+        webauthn=FakeWebAuthn(),
+        discord=FakeDiscord(),
+        discord_public_key=bytes(32),
+        webauthn_origin=ORIGIN,
+        webauthn_host="olympus.tail-example.ts.net",
+        bootstrap_enabled=False,
+        now=lambda: NOW,
+        ready=lambda: True,
+    )
+    return TestClient(app).get("/", headers={"Host": "olympus.tail-example.ts.net"}).text
+
+
+def test_closed_enrollment_does_not_offer_a_button_that_can_only_fail() -> None:
+    page = closed_page()
+
+    assert "Register Face ID" not in page
+    assert "Enrollment is closed" in page
+    # The ceremonies that still work must remain.
+    assert "Authorize for 24 hours" in page
+    assert "Recover and unfreeze" in page
+
+
+def test_open_enrollment_still_offers_registration() -> None:
+    page = client().get("/", headers={"Host": "olympus.tail-example.ts.net"}).text
+
+    assert "Register Face ID" in page
+    assert "Enrollment is closed" not in page
+
+
+def test_the_closed_notice_states_configuration_not_credential_state() -> None:
+    """The page says enrollment is off, never that a passkey exists.
+
+    The button follows the operator's own configuration flag rather than the
+    credential store, so the page can only restate something the operator
+    already set. Claiming "a passkey is registered" would assert credential
+    state that the API deliberately refuses to disclose.
+    """
+    page = closed_page()
+
+    assert "Enrollment is closed" in page
+    for leak in ("already registered", "passkey is registered", "a credential exists"):
+        assert leak not in page
