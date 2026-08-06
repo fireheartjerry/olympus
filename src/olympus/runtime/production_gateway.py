@@ -10,6 +10,8 @@ dissolve the WebAuthn boundary this whole subsystem is built on.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import logging
 import ssl
 from datetime import datetime, timedelta
 from typing import Any
@@ -17,14 +19,28 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from temporalio.client import Client
+from temporalio.worker import Worker
 
 from olympus.authority.sqlalchemy import SqlAlchemyAuthorityRepository
 from olympus.discord.contracts import DiscordInteraction
 from olympus.discord.service import DiscordCommandResponse
+from olympus.gateway.auth import ProductionLeaseAuthorizer, issue_operator_grant
+from olympus.gateway.nodes_api import NodeMeshRuntime
 from olympus.gateway.production import create_production_app
 from olympus.gateway.production_settings import ProductionGatewaySettings
+from olympus.nodes.local_node import LocalNodeHandle, attach_local_node
+from olympus.persistence.postgres_store import PostgresNodeMeshStore
+from olympus.runtime.node_edge import (
+    build_node_mesh_runtime,
+    open_node_mesh_store_url,
+    sweep_heartbeats_forever,
+)
 from olympus.webauthn.backend import PyWebAuthnBackend
 from olympus.webauthn.service import SecureChallenges, WebAuthnAuthorityService
+from olympus.workflows.node_job import NodeJobWorkflow
+
+_log = logging.getLogger(__name__)
 
 
 class DiscordAuthorityDisabled:
@@ -54,8 +70,21 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def build_app(settings: ProductionGatewaySettings, *, sessions: Any, ready: Any) -> FastAPI:
+def build_app(
+    settings: ProductionGatewaySettings,
+    *,
+    sessions: Any,
+    ready: Any,
+    node_mesh: NodeMeshRuntime | None = None,
+) -> FastAPI:
     repository = SqlAlchemyAuthorityRepository(sessions)
+    operator_grant_issuer = None
+    if node_mesh is not None:
+        operator_private_key = node_mesh.control_plane_private_key
+
+        def operator_grant_issuer(lease: Any) -> Any:
+            return issue_operator_grant(operator_private_key, lease)
+
     webauthn = WebAuthnAuthorityService(
         repository=repository,
         backend=PyWebAuthnBackend(),
@@ -82,6 +111,19 @@ def build_app(settings: ProductionGatewaySettings, *, sessions: Any, ready: Any)
         bootstrap_enabled=settings.bootstrap_enabled,
         now=_utc_now,
         ready=ready,
+        node_mesh=node_mesh,
+        node_authorizer=(
+            ProductionLeaseAuthorizer(
+                repository=repository,
+                commander_id=settings.commander_id,
+                operator_public_key=node_mesh.control_plane_public_key,
+                now=_utc_now,
+            )
+            if node_mesh is not None
+            else None
+        ),
+        operator_grant_issuer=operator_grant_issuer,
+        node_enrollment_ttl_seconds=settings.node_enrollment_ttl_seconds,
     )
 
 
@@ -106,11 +148,42 @@ async def run() -> None:
     await repository.initialize(_utc_now())
 
     database_ready = True
+    temporal_ready = not settings.node_mesh_enabled
 
     def ready() -> bool:
-        return database_ready
+        return database_ready and temporal_ready
 
-    app = build_app(settings, sessions=sessions, ready=ready)
+    temporal_client: Client | None = None
+    node_store: PostgresNodeMeshStore | None = None
+    node_runtime: NodeMeshRuntime | None = None
+    node_activities: Any = None
+    if settings.node_mesh_enabled:
+        temporal_client = await Client.connect(settings.temporal_address)
+        temporal_ready = True
+        store, store_description = await open_node_mesh_store_url(settings.node_database_url)
+        if not isinstance(store, PostgresNodeMeshStore):
+            raise RuntimeError("production node mesh refuses volatile state")
+        node_store = store
+        _log.info("node-mesh canonical store: %s", store_description)
+        node_runtime, node_activities = build_node_mesh_runtime(
+            settings=settings,
+            client=temporal_client,
+            store=node_store,
+        )
+        recovery = await node_runtime.registry.recover_after_restart()
+        if recovery.changed:
+            _log.warning(
+                "restart recovery cleared %d session(s) and reconciled %d job(s)",
+                len(recovery.sessions_cleared),
+                len(recovery.jobs_reconciled),
+            )
+        if recovery.frozen:
+            _log.warning(
+                "dispatch is frozen at epoch %d; it survived the restart",
+                recovery.freeze_epoch,
+            )
+
+    app = build_app(settings, sessions=sessions, ready=ready, node_mesh=node_runtime)
 
     # Fail before binding rather than after: a certificate problem discovered
     # by the first browser is a failed ceremony, not a log line.
@@ -130,9 +203,39 @@ async def run() -> None:
             forwarded_allow_ips=[],
         )
     )
+    sweeper: asyncio.Task[None] | None = None
+    local_node: LocalNodeHandle | None = None
     try:
-        await server.serve()
+        if node_runtime is None or temporal_client is None:
+            await server.serve()
+            return
+        edge_worker = Worker(
+            temporal_client,
+            task_queue=settings.node_task_queue,
+            workflows=[NodeJobWorkflow],
+            activities=[node_activities.select_node, node_activities.dispatch_node_job],
+        )
+        sweeper = asyncio.create_task(sweep_heartbeats_forever(node_runtime.registry))
+        async with edge_worker:
+            if settings.node_attach_control_plane_host:
+                local_node = await attach_local_node(
+                    registry=node_runtime.registry,
+                    dispatch=node_runtime.dispatch,
+                    control_plane_private_key=node_runtime.control_plane_private_key,
+                    control_plane_public_key=node_runtime.control_plane_public_key,
+                    control_plane_key_id=node_runtime.control_plane_key_id,
+                    node_name=settings.node_control_plane_host_name,
+                )
+            await server.serve()
     finally:
+        if local_node is not None:
+            await local_node.aclose()
+        if sweeper is not None:
+            sweeper.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sweeper
+        if node_store is not None:
+            await node_store.close()
         await engine.dispose()
 
 

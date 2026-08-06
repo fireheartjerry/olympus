@@ -1,5 +1,5 @@
 [Unit]
-Description=Olympus production authority gateway (Face ID enrollment)
+Description=Fire production authority gateway and Temporal node edge
 After=network-online.target
 Wants=network-online.target
 

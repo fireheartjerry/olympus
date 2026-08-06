@@ -17,6 +17,9 @@ from olympus.authority.repository import AuthorityLease
 from olympus.discord.contracts import DiscordInteraction
 from olympus.discord.service import DiscordCommandResponse
 from olympus.discord.verify import DiscordVerificationError, verify_discord_request
+from olympus.gateway.auth import OperatorAuthorizer, OperatorGrant, OperatorGrantIssuer
+from olympus.gateway.nodes_api import NodeMeshRuntime, register_node_routes
+from olympus.nodes.capabilities import SYSTEM_INSPECT
 from olympus.webauthn.service import (
     AuthenticationAnomaly,
     BootstrapDenied,
@@ -113,7 +116,13 @@ def create_production_app(
     bootstrap_enabled: bool,
     now: Callable[[], datetime],
     ready: Callable[[], bool],
+    node_mesh: NodeMeshRuntime | None = None,
+    node_authorizer: OperatorAuthorizer | None = None,
+    operator_grant_issuer: OperatorGrantIssuer | None = None,
+    node_enrollment_ttl_seconds: int = 900,
 ) -> FastAPI:
+    if (node_mesh is None) != (node_authorizer is None):
+        raise ValueError("production node mesh and authorizer must be supplied together")
     app = FastAPI(
         title="Olympus Authority",
         version="0.1.0",
@@ -269,11 +278,21 @@ def create_production_app(
             response=body.credential,
             now=now(),
         )
-        return {
+        response: dict[str, object] = {
             "status": "authorized",
             "authority_epoch": lease.authority_epoch,
             "expires_at": lease.expires_at.isoformat(),
         }
+        if operator_grant_issuer is not None:
+            grant: OperatorGrant = operator_grant_issuer(lease)
+            response.update(
+                {
+                    "operator_token": grant.token,
+                    "operator_grant_id": grant.grant_id,
+                    "commander_id": grant.commander_id,
+                }
+            )
+        return response
 
     @app.post("/v1/webauthn/recovery/options")
     async def recovery_options(
@@ -304,12 +323,22 @@ def create_production_app(
             response=body.credential,
             now=now(),
         )
-        return {
+        response: dict[str, object] = {
             "status": "recovered",
             "authority_epoch": result.lease.authority_epoch,
             "freeze_epoch": result.proof.freeze_epoch,
             "expires_at": result.lease.expires_at.isoformat(),
         }
+        if operator_grant_issuer is not None:
+            grant = operator_grant_issuer(result.lease)
+            response.update(
+                {
+                    "operator_token": grant.token,
+                    "operator_grant_id": grant.grant_id,
+                    "commander_id": grant.commander_id,
+                }
+            )
+        return response
 
     @app.post("/v1/discord/interactions")
     async def discord_interaction(request: Request) -> JSONResponse:
@@ -329,6 +358,15 @@ def create_production_app(
         except (DiscordVerificationError, ValueError, TypeError, json.JSONDecodeError):
             return JSONResponse({"detail": "request denied"}, status_code=401)
         return JSONResponse(jsonable_encoder(response))
+
+    if node_mesh is not None and node_authorizer is not None:
+        register_node_routes(
+            app,
+            enrollment_ttl_seconds=node_enrollment_ttl_seconds,
+            runtime=node_mesh,
+            authorizer=node_authorizer,
+            allowed_capabilities=frozenset({SYSTEM_INSPECT.name}),
+        )
 
     return app
 

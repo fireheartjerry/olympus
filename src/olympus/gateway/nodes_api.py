@@ -8,8 +8,7 @@ from fastapi import status as http_status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from olympus.gateway.auth import require_operator
-from olympus.gateway.settings import GatewaySettings
+from olympus.gateway.auth import OperatorAuthorizer
 from olympus.gateway.ui import render_node_console
 from olympus.nodes.audit import AuditAction, AuditDecision, AuditDraft, NodeAuditEvent
 from olympus.nodes.capabilities import (
@@ -18,6 +17,7 @@ from olympus.nodes.capabilities import (
     require_dispatchable_capability,
 )
 from olympus.nodes.channel import CLOSE_NORMAL, ChannelClosed
+from olympus.nodes.crypto import sign_enrollment_token, verify_signed_enrollment_token
 from olympus.nodes.dispatch import NodeDispatchService, NodeJobRequest
 from olympus.nodes.errors import NodeMeshError, NodeReason
 from olympus.nodes.models import (
@@ -51,6 +51,7 @@ _STATUS_FOR_REASON: dict[NodeReason, int] = {
     NodeReason.JOB_UNKNOWN: http_status.HTTP_404_NOT_FOUND,
     NodeReason.ENROLLMENT_UNKNOWN: http_status.HTTP_403_FORBIDDEN,
     NodeReason.ENROLLMENT_MALFORMED: http_status.HTTP_403_FORBIDDEN,
+    NodeReason.ENROLLMENT_CREDENTIAL_MISMATCH: http_status.HTTP_403_FORBIDDEN,
     NodeReason.ENROLLMENT_EXPIRED: http_status.HTTP_403_FORBIDDEN,
     NodeReason.ENROLLMENT_CONSUMED: http_status.HTTP_403_FORBIDDEN,
     NodeReason.ENROLLMENT_REVOKED: http_status.HTTP_403_FORBIDDEN,
@@ -107,7 +108,7 @@ class IssuedEnrollmentResponse(_Payload):
 
 
 class EnrollRequest(_Payload):
-    enrollment_token: Annotated[str, StringConstraints(min_length=16, max_length=256)]
+    enrollment_token: Annotated[str, StringConstraints(min_length=16, max_length=1024)]
     public_key: Annotated[str, StringConstraints(min_length=16, max_length=128)]
     node_name: Name
     kind: NodeKind = NodeKind.WORKSTATION
@@ -211,6 +212,7 @@ class CapabilityResponse(_Payload):
     output_trust_label: str
     max_runtime_seconds: int
     max_output_bytes: int
+    variable_cost_usd: str
 
     @classmethod
     def of(cls, descriptor: CapabilityDescriptor) -> "CapabilityResponse":
@@ -225,6 +227,7 @@ class CapabilityResponse(_Payload):
             output_trust_label=descriptor.output_trust_label.value,
             max_runtime_seconds=descriptor.max_runtime_seconds,
             max_output_bytes=descriptor.max_output_bytes,
+            variable_cost_usd=str(descriptor.variable_cost_usd),
         )
 
 
@@ -421,18 +424,22 @@ def is_permanent_refusal(reason: NodeReason) -> bool:
 
 
 def register_node_routes(
-    app: FastAPI, *, settings: GatewaySettings, runtime: NodeMeshRuntime
+    app: FastAPI,
+    *,
+    enrollment_ttl_seconds: int,
+    runtime: NodeMeshRuntime,
+    authorizer: OperatorAuthorizer,
+    allowed_capabilities: frozenset[str] | None = None,
 ) -> None:
     """Mount the node-mesh surface on the existing gateway application."""
     router = APIRouter()
     registry = runtime.registry
     dispatch = runtime.dispatch
 
-    def operator(
+    async def operator(
         commander_ids: list[str], authority_lease_ids: list[str], authorization: list[str] | None
     ) -> DispatchAuthority:
-        return require_operator(
-            settings=settings,
+        return await authorizer.authorize(
             authorization=authorization,
             commander_ids=commander_ids,
             authority_lease_ids=authority_lease_ids,
@@ -449,8 +456,15 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> IssuedEnrollmentResponse:
-        authority = operator(commander_ids, authority_lease_ids, authorization)
+        authority = await operator(commander_ids, authority_lease_ids, authorization)
         try:
+            if allowed_capabilities is not None and not set(request.capabilities).issubset(
+                allowed_capabilities
+            ):
+                raise NodeMeshError(
+                    NodeReason.CAPABILITY_RESERVED,
+                    "capability is not enabled for this deployment",
+                )
             issued = await registry.issue_enrollment_token(
                 node_name=request.node_name,
                 kind=request.kind,
@@ -458,13 +472,16 @@ def register_node_routes(
                 granted_capabilities=request.capabilities,
                 capability_scopes=request.capability_scopes,
                 issued_by=authority.commander_id,
-                ttl_seconds=request.ttl_seconds or settings.node_enrollment_ttl_seconds,
+                ttl_seconds=request.ttl_seconds or enrollment_ttl_seconds,
             )
         except NodeMeshError as exc:
             raise _refuse(exc) from exc
         return IssuedEnrollmentResponse(
             token_id=issued.token_id,
-            enrollment_token=issued.presented,
+            enrollment_token=sign_enrollment_token(
+                runtime.control_plane_private_key,
+                issued.presented,
+            ),
             node_name=issued.node_name,
             kind=issued.kind,
             platform=issued.platform,
@@ -480,7 +497,7 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> None:
-        authority = operator(commander_ids, authority_lease_ids, authorization)
+        authority = await operator(commander_ids, authority_lease_ids, authorization)
         try:
             await registry.revoke_enrollment_token(
                 token_id, actor=authority.commander_id, reason="operator revocation"
@@ -492,8 +509,12 @@ def register_node_routes(
     async def enroll_node(request: EnrollRequest) -> EnrollResponse:
         """Redeem a single-use enrollment token. Authenticated by the token alone."""
         try:
+            inner_token = verify_signed_enrollment_token(
+                runtime.control_plane_public_key,
+                request.enrollment_token,
+            )
             record = await registry.redeem_enrollment_token(
-                presented=request.enrollment_token,
+                presented=inner_token,
                 description=NodeDescription(
                     node_name=request.node_name,
                     kind=request.kind,
@@ -521,7 +542,7 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> NodeListResponse:
-        operator(commander_ids, authority_lease_ids, authorization)
+        await operator(commander_ids, authority_lease_ids, authorization)
         await registry.sweep_expired_heartbeats()
         control = await registry.dispatch_control()
         return NodeListResponse(
@@ -536,7 +557,7 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> tuple[CapabilityResponse, ...]:
-        operator(commander_ids, authority_lease_ids, authorization)
+        await operator(commander_ids, authority_lease_ids, authorization)
         return tuple(
             CapabilityResponse.of(descriptor)
             for descriptor in sorted(CAPABILITY_CATALOG.values(), key=lambda item: item.name)
@@ -550,7 +571,7 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> NodeResponse:
-        authority = operator(commander_ids, authority_lease_ids, authorization)
+        authority = await operator(commander_ids, authority_lease_ids, authorization)
         try:
             record = await registry.quarantine_node(
                 node_id, actor=authority.commander_id, reason=request.reason or "operator request"
@@ -567,7 +588,7 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> NodeResponse:
-        authority = operator(commander_ids, authority_lease_ids, authorization)
+        authority = await operator(commander_ids, authority_lease_ids, authorization)
         try:
             record = await registry.restore_node(
                 node_id, actor=authority.commander_id, reason=request.reason
@@ -584,7 +605,7 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> NodeResponse:
-        authority = operator(commander_ids, authority_lease_ids, authorization)
+        authority = await operator(commander_ids, authority_lease_ids, authorization)
         try:
             record = await registry.revoke_node(
                 node_id, actor=authority.commander_id, reason=request.reason or "operator request"
@@ -607,7 +628,7 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> JobAcceptedResponse:
-        authority = operator(commander_ids, authority_lease_ids, authorization)
+        authority = await operator(commander_ids, authority_lease_ids, authorization)
         job_request = NodeJobRequest(
             job_id=f"node-job-{_new_identifier()}",
             capability=request.capability,
@@ -648,7 +669,7 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> JobListResponse:
-        operator(commander_ids, authority_lease_ids, authorization)
+        await operator(commander_ids, authority_lease_ids, authorization)
         return JobListResponse(jobs=tuple(JobResponse.of(job) for job in dispatch.jobs()))
 
     @router.post("/v1/nodes/jobs/{job_id}/cancel", status_code=http_status.HTTP_202_ACCEPTED)
@@ -659,7 +680,7 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> dict[str, str]:
-        authority = operator(commander_ids, authority_lease_ids, authorization)
+        authority = await operator(commander_ids, authority_lease_ids, authorization)
         # Signal the workflow first, but a job whose workflow has already closed
         # must still reach the node: a stale cancel is a 404, never a 500, and
         # never a reason to skip the session-level cancel frame.
@@ -684,7 +705,7 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> ControlResponse:
-        operator(commander_ids, authority_lease_ids, authorization)
+        await operator(commander_ids, authority_lease_ids, authorization)
         return ControlResponse.of(await registry.dispatch_control())
 
     @router.post("/v1/nodes/control/freeze", response_model=ControlResponse)
@@ -694,7 +715,7 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> ControlResponse:
-        authority = operator(commander_ids, authority_lease_ids, authorization)
+        authority = await operator(commander_ids, authority_lease_ids, authorization)
         return ControlResponse.of(
             await dispatch.freeze(actor=authority.commander_id, reason=request.reason)
         )
@@ -706,7 +727,7 @@ def register_node_routes(
         authority_lease_ids: Annotated[list[str], Header(alias="X-Olympus-Authority-Lease")],
         authorization: Annotated[list[str] | None, Header()] = None,
     ) -> ControlResponse:
-        authority = operator(commander_ids, authority_lease_ids, authorization)
+        authority = await operator(commander_ids, authority_lease_ids, authorization)
         try:
             state = await dispatch.unfreeze(
                 actor=authority.commander_id,
@@ -724,7 +745,7 @@ def register_node_routes(
         authorization: Annotated[list[str] | None, Header()] = None,
         limit: int = 100,
     ) -> AuditResponse:
-        operator(commander_ids, authority_lease_ids, authorization)
+        await operator(commander_ids, authority_lease_ids, authorization)
         events = await registry.audit_events()
         selected = events[-max(min(limit, 500), 1) :]
         return AuditResponse(

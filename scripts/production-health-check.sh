@@ -35,11 +35,16 @@ fi
 if ! docker exec "$container" pg_isready > /dev/null 2>&1; then
   failures+=("postgres=unready")
 fi
+if [[ "$(docker inspect --format '{{.State.Status}}' fire-temporal 2>/dev/null || true)" != "running" ]]; then
+  failures+=("temporal=inactive")
+elif [[ "$(docker inspect --format '{{.State.Health.Status}}' fire-temporal 2>/dev/null || true)" != "healthy" ]]; then
+  failures+=("temporal=unhealthy")
+fi
 
 if (( ${#failures[@]} > 0 )); then
   printf 'Fire production health FAILED: %s\n' "${failures[*]}" >&2
   exit 1
 fi
 
-printf 'Fire production health OK: root-disk=%s%% memory-available=%s%% swap=%s%% gateway=active audit-timer=active postgres=ready\n' \
+printf 'Fire production health OK: root-disk=%s%% memory-available=%s%% swap=%s%% gateway=active audit-timer=active postgres=ready temporal=healthy\n' \
   "$disk_percent" "$memory_available_percent" "$swap_percent"

@@ -20,6 +20,7 @@ systemctl --user enable --now \
   olympus-audit-export.timer \
   olympus-tls-renew.timer \
   olympus-postgres-backup.timer \
+  olympus-temporal-backup.timer \
   olympus-health-check.timer
 loginctl enable-linger "$USER"   # so both survive logout and reboot
 ```
@@ -33,7 +34,8 @@ takes the gateway with it.
 | `olympus-tls-renew.timer` | Daily certificate check, randomized by up to an hour |
 | `olympus-tls-renew.service` | Runs `tailscale cert`, then restarts the gateway **only if the certificate actually changed** |
 | `olympus-postgres-backup.timer` | Daily atomic custom-format PostgreSQL backup with archive and SHA-256 verification |
-| `olympus-health-check.timer` | Five-minute disk, swap, gateway, audit-timer, and PostgreSQL readiness check |
+| `olympus-temporal-backup.timer` | Daily verified custom-format backups of Temporal core and visibility databases |
+| `olympus-health-check.timer` | Five-minute disk, swap, gateway, audit-timer, PostgreSQL, and Temporal readiness check |
 
 The conditional restart matters: `uvicorn` reads the certificate once at
 startup, so a renewal needs a restart to take effect — but restarting daily
@@ -45,6 +47,9 @@ before trusting it:
 ```bash
 latest="$(find "$HOME/olympus-backups" -maxdepth 1 -type f -name 'authority-*.dump' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
 scripts/postgres-restore-drill.sh "$latest"
+
+latest_temporal="$(find "$HOME/olympus-backups" -maxdepth 1 -type d -name 'temporal-*' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+scripts/temporal-restore-drill.sh "$latest_temporal"
 ```
 
 The drill creates a network-isolated PostgreSQL container with tmpfs storage,

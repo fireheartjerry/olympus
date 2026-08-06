@@ -44,7 +44,9 @@ class FakeJobStarter:
         self.cancelled.append(job_id)
 
 
-def build_client() -> tuple[TestClient, NodeMeshRuntime, FakeJobStarter]:
+def build_client(
+    *, allowed_capabilities: frozenset[str] | None = None
+) -> tuple[TestClient, NodeMeshRuntime, FakeJobStarter]:
     settings = GatewaySettings(
         environment="test",
         dev_command_token=TEST_COMMAND_TOKEN,  # type: ignore[arg-type]
@@ -60,7 +62,12 @@ def build_client() -> tuple[TestClient, NodeMeshRuntime, FakeJobStarter]:
         control_plane_key_id="olympus-control-plane-test",
         job_starter=starter,
     )
-    app = create_app(settings, FakeCommandStarter(), runtime)
+    app = create_app(
+        settings,
+        FakeCommandStarter(),
+        runtime,
+        node_allowed_capabilities=allowed_capabilities,
+    )
     return TestClient(app), runtime, starter
 
 
@@ -123,6 +130,36 @@ def test_node_writes_require_the_operator_credential() -> None:
         assert response.status_code == 401
 
 
+def test_deployment_allowlist_keeps_filesystem_capabilities_reserved() -> None:
+    client, _, _ = build_client(allowed_capabilities=frozenset({SYSTEM_INSPECT.name}))
+
+    refused = client.post(
+        "/v1/nodes/enrollments",
+        json={
+            "node_name": "jerry-windows",
+            "platform": "windows",
+            "capabilities": ["fs.read@1"],
+            "capability_scopes": {
+                "fs.read@1": {"roots": ["C:\\\\olympus\\\\share"], "max_bytes": 2048}
+            },
+        },
+        headers=HEADERS,
+    )
+    allowed = client.post(
+        "/v1/nodes/enrollments",
+        json={
+            "node_name": "jerry-windows",
+            "platform": "windows",
+            "capabilities": [SYSTEM_INSPECT.name],
+        },
+        headers=HEADERS,
+    )
+
+    assert refused.status_code == 403
+    assert refused.json() == {"detail": "capability-reserved"}
+    assert allowed.status_code == 201
+
+
 def test_malformed_authority_headers_are_refused() -> None:
     client, _, _ = build_client()
     response = client.get("/v1/nodes", headers={**HEADERS, "X-Olympus-Commander": "bad id!"})
@@ -133,7 +170,7 @@ def test_issuing_an_enrollment_grant_returns_the_secret_exactly_once() -> None:
     client, runtime, _ = build_client()
     body = issue(client)
 
-    assert body["enrollment_token"].startswith("olynode_")
+    assert body["enrollment_token"].startswith("olynodev2.")
     assert body["granted_capabilities"] == [SYSTEM_INSPECT.name]
     assert body["protocol"] == PROTOCOL_ID
     listed = client.get("/v1/nodes/audit", headers=HEADERS).json()
@@ -167,6 +204,18 @@ def test_enrollment_redeems_once_and_then_refuses_replay() -> None:
     replayed = enroll(client, grant["enrollment_token"], generate_node_keypair().public_key)
     assert replayed.status_code == 403
     assert replayed.json()["detail"] == "enrollment-token-consumed"
+
+
+def test_enrollment_refuses_a_tampered_control_plane_signature() -> None:
+    client, _, _ = build_client()
+    grant = issue(client)
+    replacement = "A" if grant["enrollment_token"][-1] != "A" else "B"
+    tampered = f"{grant['enrollment_token'][:-1]}{replacement}"
+
+    response = enroll(client, tampered, generate_node_keypair().public_key)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "enrollment-token-secret-mismatch"
 
 
 def test_enrollment_refuses_a_scope_it_was_not_issued_for() -> None:

@@ -1,9 +1,11 @@
 import asyncio
 import contextlib
 import logging
+from typing import Protocol
 
 import uvicorn
 from fastapi import FastAPI
+from pydantic import SecretStr
 from temporalio.client import Client
 from temporalio.service import RPCError
 from temporalio.worker import Worker
@@ -27,26 +29,44 @@ HEARTBEAT_SWEEP_INTERVAL_SECONDS = 10
 _log = logging.getLogger(__name__)
 
 
-async def open_node_mesh_store(settings: GatewaySettings) -> tuple[NodeMeshStore | None, str]:
+class NodeRuntimeSettings(Protocol):
+    temporal_address: str
+    node_task_queue: str
+    node_heartbeat_interval_seconds: int
+    node_heartbeat_expiry_seconds: int
+    node_enrollment_ttl_seconds: int
+    node_control_plane_key_id: str
+    node_control_plane_private_key: SecretStr | None
+    node_attach_control_plane_host: bool
+    node_control_plane_host_name: str
+
+
+async def open_node_mesh_store_url(
+    database_url: SecretStr | None,
+) -> tuple[NodeMeshStore | None, str]:
     """Open the canonical store, or report that none is configured.
 
     Returning ``None`` selects the in-process store. That is correct only when
     a test or the offline demonstration explicitly opted into volatile state.
     """
-    if settings.database_url is None:
-        if not settings.node_allow_volatile_state:
-            raise RuntimeError(
-                "node mesh requires FIRE_DATABASE_URL (legacy OLYMPUS_DATABASE_URL); "
-                "volatile state is allowed only with "
-                "FIRE_NODE_ALLOW_VOLATILE_STATE=true in a disposable test or demo"
-            )
+    if database_url is None:
         return None, "in-process (volatile: state is lost on restart)"
     # Imported lazily so a mesh running without PostgreSQL does not need the
     # driver installed.
     from olympus.persistence.postgres_store import PostgresNodeMeshStore
 
-    store = await PostgresNodeMeshStore.connect(settings.database_url.get_secret_value())
+    store = await PostgresNodeMeshStore.connect(database_url.get_secret_value())
     return store, "postgresql (canonical)"
+
+
+async def open_node_mesh_store(settings: GatewaySettings) -> tuple[NodeMeshStore | None, str]:
+    if settings.database_url is None and not settings.node_allow_volatile_state:
+        raise RuntimeError(
+            "node mesh requires FIRE_DATABASE_URL (legacy OLYMPUS_DATABASE_URL); "
+            "volatile state is allowed only with "
+            "FIRE_NODE_ALLOW_VOLATILE_STATE=true in a disposable test or demo"
+        )
+    return await open_node_mesh_store_url(settings.database_url)
 
 
 class TemporalNodeJobStarter:
@@ -74,7 +94,7 @@ class TemporalNodeJobStarter:
             raise NodeMeshError(NodeReason.JOB_UNKNOWN, "unknown node job") from exc
 
 
-def resolve_control_plane_keys(settings: GatewaySettings) -> tuple[str, str]:
+def resolve_control_plane_keys(settings: NodeRuntimeSettings) -> tuple[str, str]:
     """Return the control-plane signing key pair, generating an ephemeral one if unset.
 
     An ephemeral key is a development convenience requiring explicit opt-in:
@@ -86,7 +106,8 @@ def resolve_control_plane_keys(settings: GatewaySettings) -> tuple[str, str]:
     if configured is not None:
         private_key = configured.get_secret_value()
         return private_key, public_key_of(private_key)
-    if not settings.node_allow_ephemeral_control_plane_key:
+    allow_ephemeral = getattr(settings, "node_allow_ephemeral_control_plane_key", False)
+    if not allow_ephemeral:
         raise RuntimeError(
             "node mesh requires FIRE_NODE_CONTROL_PLANE_PRIVATE_KEY "
             "(legacy OLYMPUS_NODE_CONTROL_PLANE_PRIVATE_KEY); ephemeral signing "
@@ -98,7 +119,7 @@ def resolve_control_plane_keys(settings: GatewaySettings) -> tuple[str, str]:
 
 
 def build_node_mesh_runtime(
-    *, settings: GatewaySettings, client: Client, store: NodeMeshStore | None = None
+    *, settings: NodeRuntimeSettings, client: Client, store: NodeMeshStore | None = None
 ) -> tuple[NodeMeshRuntime, NodeDispatchActivities]:
     """Assemble the mesh runtime and the activities that reach its live sessions."""
     private_key, public_key = resolve_control_plane_keys(settings)

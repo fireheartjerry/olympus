@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 from olympus.nodes.errors import NodeMeshError, NodeReason
 
 _ENROLLMENT_PREFIX = "olynode"
+_SIGNED_ENROLLMENT_PREFIX = "olynodev2"
 _ENROLLMENT_HASH_DOMAIN = b"olympus-node-enrollment-v1"
 _DEDUPE_HASH_DOMAIN = "olympus-node-dedupe-v1"
 _ENROLLMENT_ID_BYTES = 8
@@ -146,6 +147,47 @@ def split_enrollment_token(presented: str) -> tuple[str, str]:
     if len(parts) != 3 or parts[0] != _ENROLLMENT_PREFIX or not parts[1] or not parts[2]:
         raise NodeMeshError(NodeReason.ENROLLMENT_MALFORMED, "malformed enrollment token")
     return parts[1], parts[2]
+
+
+def sign_enrollment_token(private_key: str, presented: str) -> str:
+    """Wrap a one-time enrollment secret in a control-plane Ed25519 signature."""
+    # Validate the inner token before signing so a malformed value can never
+    # acquire control-plane authenticity.
+    split_enrollment_token(presented)
+    payload = {
+        "domain": "olympus-signed-node-enrollment-v1",
+        "token": presented,
+    }
+    body = encode_bytes(canonical_json(payload))
+    return f"{_SIGNED_ENROLLMENT_PREFIX}.{body}.{sign_payload(private_key, payload)}"
+
+
+def verify_signed_enrollment_token(public_key: str, presented: str) -> str:
+    """Verify a signed enrollment token and return its canonical inner secret."""
+    try:
+        parts = presented.split(".")
+        if len(parts) != 3 or parts[0] != _SIGNED_ENROLLMENT_PREFIX:
+            raise ValueError("malformed signed enrollment token")
+        payload = json.loads(decode_bytes(parts[1]))
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"domain", "token"}
+            or payload["domain"] != "olympus-signed-node-enrollment-v1"
+            or not isinstance(payload["token"], str)
+            or encode_bytes(canonical_json(payload)) != parts[1]
+        ):
+            raise ValueError("malformed signed enrollment token")
+        verify_payload(public_key, payload, parts[2], NodeReason.ENROLLMENT_CREDENTIAL_MISMATCH)
+        split_enrollment_token(payload["token"])
+    except (json.JSONDecodeError, NodeMeshError, TypeError, UnicodeDecodeError, ValueError) as exc:
+        reason = (
+            exc.reason
+            if isinstance(exc, NodeMeshError)
+            and exc.reason is NodeReason.ENROLLMENT_CREDENTIAL_MISMATCH
+            else NodeReason.ENROLLMENT_MALFORMED
+        )
+        raise NodeMeshError(reason, "signed enrollment token is invalid") from exc
+    return payload["token"]
 
 
 def enrollment_secret_matches(token_id: str, secret_value: str, expected_hash: str) -> bool:

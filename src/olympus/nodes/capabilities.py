@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
 
@@ -46,6 +47,7 @@ class CapabilityDescriptor:
     max_output_bytes: int
     max_artifacts: int
     max_artifact_bytes: int
+    variable_cost_usd: Decimal
 
     @property
     def name(self) -> str:
@@ -66,6 +68,7 @@ def _descriptor(
     max_output_bytes: int = 65_536,
     max_artifacts: int = 0,
     max_artifact_bytes: int = 0,
+    variable_cost_usd: Decimal = Decimal("0.00"),
 ) -> CapabilityDescriptor:
     return CapabilityDescriptor(
         capability_id=capability_id,
@@ -83,6 +86,7 @@ def _descriptor(
         max_output_bytes=max_output_bytes,
         max_artifacts=max_artifacts,
         max_artifact_bytes=max_artifact_bytes,
+        variable_cost_usd=variable_cost_usd,
     )
 
 

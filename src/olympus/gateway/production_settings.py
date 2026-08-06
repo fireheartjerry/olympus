@@ -1,7 +1,7 @@
 import ipaddress
 import re
 from datetime import timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Self
 
 from pydantic import AnyHttpUrl, Field, SecretStr, field_validator, model_validator
@@ -35,6 +35,20 @@ class ProductionGatewaySettings(BaseSettings):
     emergency_latch_verification_key: SecretStr
     temporal_address: str = "127.0.0.1:7233"
     temporal_task_queue: str = "olympus-command-v1"
+
+    # The production node edge is intentionally opt-in. When enabled it shares
+    # this private TLS listener, but its durable state and signing identity are
+    # mandatory; there is no volatile or ephemeral production fallback.
+    node_mesh_enabled: bool = False
+    node_task_queue: str = "olympus-node-edge-v1"
+    node_heartbeat_interval_seconds: int = Field(default=15, ge=1, le=3600)
+    node_heartbeat_expiry_seconds: int = Field(default=45, ge=2, le=7200)
+    node_enrollment_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    node_control_plane_key_id: str = "olympus-control-plane-v1"
+    node_control_plane_private_key: SecretStr | None = None
+    node_database_url: SecretStr | None = None
+    node_attach_control_plane_host: bool = False
+    node_control_plane_host_name: str = "vps-primary"
 
     # Olympus terminates its own TLS on a dedicated high port bound to a single
     # address. It does not sit behind a shared reverse proxy: the production app
@@ -90,7 +104,9 @@ class ProductionGatewaySettings(BaseSettings):
     @field_validator("tls_certificate_path", "tls_private_key_path")
     @classmethod
     def validate_tls_path(cls, value: Path | None) -> Path | None:
-        if value is not None and not value.is_absolute():
+        if value is not None and not (
+            value.is_absolute() or PurePosixPath(str(value).replace("\\", "/")).is_absolute()
+        ):
             raise ValueError("TLS material paths must be absolute")
         return value
 
@@ -123,7 +139,7 @@ class ProductionGatewaySettings(BaseSettings):
     @field_validator("emergency_latch_path")
     @classmethod
     def validate_latch_path(cls, value: Path) -> Path:
-        if not value.is_absolute():
+        if not (value.is_absolute() or PurePosixPath(str(value).replace("\\", "/")).is_absolute()):
             raise ValueError("emergency_latch_path must be absolute")
         return value
 
@@ -132,6 +148,13 @@ class ProductionGatewaySettings(BaseSettings):
     def validate_database_dsn(cls, value: SecretStr) -> SecretStr:
         if not value.get_secret_value().startswith("postgresql+asyncpg://"):
             raise ValueError("database_dsn must use postgresql+asyncpg")
+        return value
+
+    @field_validator("node_control_plane_private_key", "node_database_url", mode="before")
+    @classmethod
+    def blank_node_secret_means_unset(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
         return value
 
     @model_validator(mode="after")
@@ -152,6 +175,15 @@ class ProductionGatewaySettings(BaseSettings):
             0
         ) or self.discord_timestamp_tolerance > timedelta(minutes=5):
             raise ValueError("discord_timestamp_tolerance must be at most five minutes")
+        if self.node_heartbeat_expiry_seconds <= self.node_heartbeat_interval_seconds:
+            raise ValueError("node heartbeat expiry must exceed the heartbeat interval")
+        if self.node_mesh_enabled and (
+            self.node_database_url is None or self.node_control_plane_private_key is None
+        ):
+            raise ValueError(
+                "production node mesh requires durable PostgreSQL state and a persistent "
+                "control-plane signing key"
+            )
 
         if (self.tls_certificate_path is None) != (self.tls_private_key_path is None):
             raise ValueError("TLS requires both a certificate and a private key, or neither")

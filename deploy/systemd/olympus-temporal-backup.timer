@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Fire Temporal PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 03:25:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+Unit=olympus-temporal-backup.service
+
+[Install]
+WantedBy=timers.target

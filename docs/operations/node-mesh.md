@@ -1,6 +1,6 @@
 # Olympus Execution Node Mesh — Operator Runbook
 
-**Status:** Slice implemented, not deployed
+**Status:** Production rollout candidate; live evidence belongs in the rollout receipt
 
 **Date:** 2026-08-01
 
@@ -15,9 +15,9 @@
 `docs/superpowers/specs/2026-07-28-agentic-vps-god-agent-design.md`
 (Sections 14.1, 16, 22)
 
-**Nothing in this document has been deployed, run, or verified against a live
-VPS.** It records what the code in the repository does today and the exact
-operator actions required to bring it up.
+This runbook describes both the development harness and the production path.
+Do not infer live state from a checked-in runbook; use the dated rollout
+receipt and on-host health evidence.
 
 ## 1. Purpose and scope
 
@@ -108,6 +108,27 @@ Tailscale Serve terminating TLS and forwarding to that loopback port.
 ## 3. Installation
 
 ### VPS side
+
+The production process is `olympus.runtime.production_gateway`. When
+`FIRE_PRODUCTION_NODE_MESH_ENABLED=true`, the existing private TLS authority
+listener also mounts the node routes, connects to the loopback-only Temporal
+frontend, opens the durable PostgreSQL node store, performs restart
+reconciliation, and runs the node-job worker. It refuses startup unless both
+`FIRE_PRODUCTION_NODE_DATABASE_URL` and a persistent
+`FIRE_PRODUCTION_NODE_CONTROL_PLANE_PRIVATE_KEY` exist.
+
+Production does not accept `OLYMPUS_DEV_COMMAND_TOKEN`. A successful WebAuthn
+lease ceremony returns a short-lived Ed25519-signed `operator_token` plus its
+`operator_grant_id` and commander. The signed grant is bound to the canonical
+server-side lease, commander, authority epoch, `node-mesh` scope, issue time,
+and expiry. Every node API request verifies the signature and then re-reads the
+active lease; expiry, replacement, revocation, freeze, or repository failure
+fails closed. The raw server-side lease identifier is never returned.
+
+The production route allowlist contains only `system.inspect@1`. Filesystem,
+PowerShell, browser, Codex, Claude, desktop, and GPU capabilities therefore
+cannot be granted by an operator token in this deployment even if an
+implementation exists elsewhere in the repository.
 
 The control plane and the node-mesh edge worker run in one process:
 `src/olympus/runtime/node_edge.py:run()`. It connects to Temporal, builds the
@@ -227,14 +248,18 @@ scoped to one node name, kind, platform, and capability grant; the node
 redeems it once, generating its own key pair locally and never transmitting
 the private half.
 
-**1. Issue a token** (`POST /v1/nodes/enrollments`, requires the operator
-headers described in Section 5):
+**1. Authorize with WebAuthn.** Use the private mobile authority page and run
+"Authorize for 24 hours." Keep the returned `operator_token`,
+`operator_grant_id`, and `commander_id` in tab/session memory only.
+
+**2. Issue a token** (`POST /v1/nodes/enrollments`, requires the signed operator
+grant):
 
 ```bash
 curl -sS -X POST "https://vps-41e741fc.tail70f263.ts.net/v1/nodes/enrollments" \
-  -H "Authorization: Bearer $OLYMPUS_DEV_COMMAND_TOKEN" \
-  -H "X-Olympus-Commander: jerry" \
-  -H "X-Olympus-Authority-Lease: <lease-id>" \
+  -H "Authorization: Bearer $FIRE_OPERATOR_TOKEN" \
+  -H "X-Olympus-Commander: $FIRE_OPERATOR_COMMANDER" \
+  -H "X-Olympus-Authority-Lease: $FIRE_OPERATOR_GRANT_ID" \
   -H "Content-Type: application/json" \
   -d '{
         "node_name": "jerry-windows",
@@ -247,9 +272,9 @@ curl -sS -X POST "https://vps-41e741fc.tail70f263.ts.net/v1/nodes/enrollments" \
 
 ```powershell
 $headers = @{
-  "Authorization"              = "Bearer $env:OLYMPUS_DEV_COMMAND_TOKEN"
-  "X-Olympus-Commander"        = "jerry"
-  "X-Olympus-Authority-Lease"  = "<lease-id>"
+  "Authorization"              = "Bearer $env:FIRE_OPERATOR_TOKEN"
+  "X-Olympus-Commander"        = $env:FIRE_OPERATOR_COMMANDER
+  "X-Olympus-Authority-Lease"  = $env:FIRE_OPERATOR_GRANT_ID
 }
 $body = @{
   node_name    = "jerry-windows"
@@ -263,10 +288,13 @@ Invoke-RestMethod -Method Post `
   -Headers $headers -Body $body -ContentType "application/json"
 ```
 
-The response (`IssuedEnrollmentResponse`) carries `enrollment_token` — the
-presented secret, shaped `olynode_<token_id>_<secret>` — plus `token_id`,
-`granted_capabilities`, and `expires_at`. **This is the only time the secret
-is shown.** `NodeRegistryStore` never stores the presented value, only
+The response (`IssuedEnrollmentResponse`) carries `enrollment_token` — a
+signed `olynodev2.<payload>.<ed25519-signature>` wrapper around the one-time
+secret — plus `token_id`, `granted_capabilities`, and `expires_at`. Redemption
+verifies the persistent control-plane signature before consulting canonical
+state, which binds the inner token to its stored node identity, capability
+scope, expiry, revocation, and consumption record. **This is the only time the
+secret is shown.** `NodeRegistryStore` never stores the presented value, only
 `secret_hash = hash_enrollment_secret(token_id, secret_value)`
 (`src/olympus/nodes/crypto.py`), a SHA-256 hash domain-separated with
 `b"olympus-node-enrollment-v1"`.
@@ -289,7 +317,7 @@ The token is:
   redemption whose `node_name`, `platform`, or `kind` does not match what
   was granted, with `NodeReason.ENROLLMENT_SCOPE_MISMATCH`.
 
-**2. Redeem it.** The Windows installer does this for you via
+**3. Redeem it.** The Windows installer does this for you via
 `Invoke-Enrollment`, which calls:
 
 ```powershell

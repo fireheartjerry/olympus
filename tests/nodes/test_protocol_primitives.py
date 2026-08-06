@@ -29,9 +29,11 @@ from olympus.nodes.crypto import (
     generate_node_keypair,
     new_enrollment_secret,
     public_key_of,
+    sign_enrollment_token,
     sign_payload,
     split_enrollment_token,
     verify_payload,
+    verify_signed_enrollment_token,
 )
 from olympus.nodes.errors import NodeMeshError, NodeReason, is_permanent_refusal
 from olympus.nodes.models import NodeJobOutcome, NodeJobStatus
@@ -253,6 +255,20 @@ def test_malformed_enrollment_tokens_are_refused(presented: str) -> None:
     with pytest.raises(NodeMeshError) as failure:
         split_enrollment_token(presented)
     assert failure.value.reason is NodeReason.ENROLLMENT_MALFORMED
+
+
+def test_signed_enrollment_token_is_authentic_and_tamper_evident() -> None:
+    keys = generate_node_keypair()
+    secret = new_enrollment_secret()
+    signed = sign_enrollment_token(keys.private_key, secret.presented)
+
+    assert signed.startswith("olynodev2.")
+    assert verify_signed_enrollment_token(keys.public_key, signed) == secret.presented
+
+    replacement = "A" if signed[-1] != "A" else "B"
+    with pytest.raises(NodeMeshError) as tampered:
+        verify_signed_enrollment_token(keys.public_key, f"{signed[:-1]}{replacement}")
+    assert tampered.value.reason is NodeReason.ENROLLMENT_CREDENTIAL_MISMATCH
 
 
 def test_dedupe_keys_are_deterministic_and_parameter_sensitive() -> None:
