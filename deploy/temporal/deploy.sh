@@ -54,8 +54,25 @@ unset password
 
 export FIRE_AUTHORITY_BACKEND_NETWORK="$network"
 export FIRE_TEMPORAL_POSTGRES_PASSWORD_FILE="$secret_file"
-docker compose -f "$compose_file" up -d --wait
+docker compose -f "$compose_file" up -d
 
-health="$(docker inspect --format '{{.State.Health.Status}}' fire-temporal)"
+health=""
+for _ in $(seq 1 90); do
+  health="$(docker inspect --format '{{.State.Health.Status}}' fire-temporal 2>/dev/null || true)"
+  [[ "$health" == "healthy" ]] && break
+  sleep 2
+done
 [[ "$health" == "healthy" ]]
+
+namespace_container="$(docker compose -f "$compose_file" ps --all --quiet namespace)"
+[[ -n "$namespace_container" ]]
+namespace_status=""
+namespace_exit=""
+for _ in $(seq 1 30); do
+  namespace_status="$(docker inspect --format '{{.State.Status}}' "$namespace_container")"
+  namespace_exit="$(docker inspect --format '{{.State.ExitCode}}' "$namespace_container")"
+  [[ "$namespace_status" == "exited" ]] && break
+  sleep 2
+done
+[[ "$namespace_status" == "exited" && "$namespace_exit" == "0" ]]
 printf 'temporal=healthy address=127.0.0.1:7233 network=%s\n' "$network"
