@@ -14,7 +14,6 @@ RestartSec=3
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
-PrivateDevices=true
 ProtectSystem=full
 ProtectHome=read-only
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

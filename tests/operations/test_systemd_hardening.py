@@ -15,7 +15,6 @@ def test_authority_services_drop_ambient_privilege() -> None:
     required = (
         "NoNewPrivileges=true",
         "PrivateTmp=true",
-        "PrivateDevices=true",
         "ProtectSystem=full",
         "ProtectHome=read-only",
         "RestrictAddressFamilies=",
@@ -30,6 +29,9 @@ def test_authority_services_drop_ambient_privilege() -> None:
             assert control in unit, f"{name} is missing {control}"
         assert "CapabilityBoundingSet=" not in unit, (
             f"{name} uses a capability directive unsupported by the OVH user manager"
+        )
+        assert "PrivateDevices=true" not in unit, (
+            f"{name} uses a device directive unsupported by the OVH user manager"
         )
 
 
