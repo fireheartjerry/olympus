@@ -7,6 +7,11 @@ These are **user** units, not system units: the deployment has no root, and
 does not need it. Nothing here binds a privileged port or writes outside
 `/home/ubuntu`.
 
+Do not add `CapabilityBoundingSet=` to these user units. The OVH user manager
+cannot apply that system-service directive and fails the process with
+`218/CAPABILITIES`; `NoNewPrivileges=true` remains the compatible privilege
+boundary here.
+
 ```bash
 cp deploy/systemd/*.service deploy/systemd/*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload

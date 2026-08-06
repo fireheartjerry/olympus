@@ -12,7 +12,6 @@ PrivateDevices=true
 ProtectSystem=full
 ProtectHome=read-only
 ReadWritePaths=/home/ubuntu/olympus/run/tls
-CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
 RestrictRealtime=true

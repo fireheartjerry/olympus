@@ -18,7 +18,6 @@ def test_authority_services_drop_ambient_privilege() -> None:
         "PrivateDevices=true",
         "ProtectSystem=full",
         "ProtectHome=read-only",
-        "CapabilityBoundingSet=",
         "RestrictAddressFamilies=",
         "LockPersonality=true",
         "RestrictRealtime=true",
@@ -29,6 +28,9 @@ def test_authority_services_drop_ambient_privilege() -> None:
         unit = (SYSTEMD / name).read_text(encoding="utf-8")
         for control in required:
             assert control in unit, f"{name} is missing {control}"
+        assert "CapabilityBoundingSet=" not in unit, (
+            f"{name} uses a capability directive unsupported by the OVH user manager"
+        )
 
 
 def test_backup_and_health_timers_are_persistent_and_bounded() -> None:

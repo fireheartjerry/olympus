@@ -14,7 +14,6 @@ PrivateDevices=true
 ProtectSystem=full
 ProtectHome=read-only
 ReadWritePaths=/home/ubuntu/olympus-backups
-CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX
 LockPersonality=true
 RestrictRealtime=true
