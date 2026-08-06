@@ -38,7 +38,7 @@ chmod 0400 -- "$secret_file"
 password="$(<"$secret_file")"
 [[ "$password" =~ ^[0-9a-f]{64}$ ]]
 
-docker exec "$container" sh -euc '
+docker exec -i "$container" sh -euc '
   exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres \
     --set=temporal_password="$1"
 ' sh "$password" <<'SQL'

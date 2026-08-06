@@ -14,7 +14,7 @@ setup_database() {
   if ! temporal-sql-tool \
     --plugin postgres12 --ep "$POSTGRES_SEEDS" -u "$POSTGRES_USER" -p "$port" \
     --db "$database" setup-schema -v 0.0; then
-    echo "$database base schema already exists; applying versioned migrations"
+    echo "$database base schema setup did not run; versioned migration will prove existing state"
   fi
   temporal-sql-tool \
     --plugin postgres12 --ep "$POSTGRES_SEEDS" -u "$POSTGRES_USER" -p "$port" \
