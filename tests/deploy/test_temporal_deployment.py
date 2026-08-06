@@ -26,3 +26,10 @@ def test_deploy_waits_for_health_and_successful_namespace_completion() -> None:
     assert '[[ "$health" == "healthy" ]]' in script
     assert '"$namespace_status" == "exited" && "$namespace_exit" == "0"' in script
     assert "up -d --wait" not in script
+
+
+def test_temporal_backup_checksum_manifest_survives_atomic_directory_rename() -> None:
+    script = (ROOT / "scripts" / "temporal-backup.sh").read_text(encoding="utf-8")
+
+    assert 'cd "$partial_dir" && sha256sum -- "${database}.dump"' in script
+    assert 'sha256sum -- "$dump_path"' not in script
