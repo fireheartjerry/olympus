@@ -7,9 +7,9 @@ binds explicitly to OVH loopback. The frontend is `127.0.0.1:7233`; Temporal
 reaches the already-loopback-only PostgreSQL listener at `127.0.0.1:5433`.
 
 It is intentionally not high availability. A host loss causes downtime until
-OVH is restored; it must not cause workflow-state loss when the PostgreSQL
-backups are current. Kubernetes, Temporal UI, Elasticsearch, and `auto-setup`
-are deliberately absent.
+OVH is restored; immutable off-host PostgreSQL backups bound the state loss to
+the backup RPO. Kubernetes, Temporal UI, Elasticsearch, and `auto-setup` are
+deliberately absent.
 
 Before startup, create the external Docker network, attach the existing
 `olympus-postgres` container, create role `temporal` plus databases `temporal`
@@ -29,3 +29,9 @@ docker run --rm --network host \
 
 Never run `docker compose down -v`; the Temporal data is in PostgreSQL, but
 that command is a bad operational reflex and eventually eats something real.
+
+The daily `olympus-temporal-backup.timer` dumps both databases, verifies both
+archives, uploads one deterministic tar to the existing locked S3 boundary,
+and KMS-signs an attestation over its exact bucket, key, version, checksum,
+encryption, and retention. Restore instructions live in
+`docs/operations/temporal-disaster-recovery.md`.

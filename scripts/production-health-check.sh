@@ -6,6 +6,8 @@ disk_warn_percent="${OLYMPUS_DISK_WARN_PERCENT:-80}"
 swap_warn_percent="${OLYMPUS_SWAP_WARN_PERCENT:-95}"
 memory_available_warn_percent="${OLYMPUS_MEMORY_AVAILABLE_WARN_PERCENT:-20}"
 container="${OLYMPUS_POSTGRES_CONTAINER:-olympus-postgres}"
+backup_root="${FIRE_POSTGRES_BACKUP_DIR:-${OLYMPUS_POSTGRES_BACKUP_DIR:-${HOME}/olympus-backups}}"
+offhost_backup_max_age_minutes="${FIRE_OFFHOST_BACKUP_MAX_AGE_MINUTES:-1560}"
 
 failures=()
 
@@ -32,6 +34,14 @@ fi
 if ! systemctl --user is-active --quiet olympus-audit-export.timer; then
   failures+=("audit-timer=inactive")
 fi
+if ! systemctl --user is-active --quiet olympus-temporal-backup.timer; then
+  failures+=("temporal-backup-timer=inactive")
+fi
+if ! find "${backup_root}/offhost-receipts" -maxdepth 1 -type f \
+  -name 'temporal-*.json' -mmin "-${offhost_backup_max_age_minutes}" -print -quit \
+  2>/dev/null | grep -q .; then
+  failures+=("temporal-offhost-backup=stale-or-missing")
+fi
 if ! docker exec "$container" pg_isready > /dev/null 2>&1; then
   failures+=("postgres=unready")
 fi
@@ -46,5 +56,5 @@ if (( ${#failures[@]} > 0 )); then
   exit 1
 fi
 
-printf 'Fire production health OK: root-disk=%s%% memory-available=%s%% swap=%s%% gateway=active audit-timer=active postgres=ready temporal=healthy\n' \
+printf 'Fire production health OK: root-disk=%s%% memory-available=%s%% swap=%s%% gateway=active audit-timer=active temporal-backup=fresh postgres=ready temporal=healthy\n' \
   "$disk_percent" "$memory_available_percent" "$swap_percent"

@@ -1,6 +1,6 @@
 [Unit]
 Description=Check Olympus authority services and capacity bounds
-After=olympus-gateway.service olympus-audit-export.timer
+After=olympus-gateway.service olympus-audit-export.timer olympus-temporal-backup.timer
 
 [Service]
 Type=oneshot

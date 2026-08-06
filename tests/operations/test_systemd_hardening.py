@@ -10,6 +10,7 @@ def test_authority_services_drop_ambient_privilege() -> None:
         "olympus-audit-export.service",
         "olympus-tls-renew.service",
         "olympus-postgres-backup.service",
+        "olympus-temporal-backup.service",
         "olympus-health-check.service",
     ]
     required = (
@@ -68,6 +69,14 @@ def test_health_check_only_pages_on_swap_when_memory_is_low() -> None:
         "swap_percent >= swap_warn_percent && "
         "memory_available_percent < memory_available_warn_percent"
     ) in health
+
+
+def test_health_check_rejects_stale_or_disabled_temporal_offhost_backup() -> None:
+    health = (ROOT / "scripts" / "production-health-check.sh").read_text(encoding="utf-8")
+
+    assert "temporal-backup-timer=inactive" in health
+    assert "temporal-offhost-backup=stale-or-missing" in health
+    assert "FIRE_OFFHOST_BACKUP_MAX_AGE_MINUTES:-1560" in health
 
 
 def test_postgres_definition_is_pinned_loopback_only_and_reuses_live_volume() -> None:

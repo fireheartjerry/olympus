@@ -1,14 +1,26 @@
 [Unit]
 Description=Back up Fire Temporal PostgreSQL state
-After=docker.service
+Wants=network-online.target
+After=docker.service network-online.target
 
 [Service]
 Type=oneshot
+UMask=0077
 WorkingDirectory=/home/ubuntu/olympus
 ExecStart=/home/ubuntu/olympus/scripts/temporal-backup.sh
+ExecStart=/home/ubuntu/olympus/.venv/bin/python -m olympus.runtime.temporal_offhost_backup upload --latest
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/olympus-backups
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=default.target

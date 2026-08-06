@@ -34,7 +34,7 @@ takes the gateway with it.
 | `olympus-tls-renew.timer` | Daily certificate check, randomized by up to an hour |
 | `olympus-tls-renew.service` | Runs `tailscale cert`, then restarts the gateway **only if the certificate actually changed** |
 | `olympus-postgres-backup.timer` | Daily atomic custom-format PostgreSQL backup with archive and SHA-256 verification |
-| `olympus-temporal-backup.timer` | Daily verified custom-format backups of Temporal core and visibility databases |
+| `olympus-temporal-backup.timer` | Daily verified Temporal dumps followed by encrypted, signed, immutable off-host upload |
 | `olympus-health-check.timer` | Five-minute disk, swap, gateway, audit-timer, PostgreSQL, and Temporal readiness check |
 
 The conditional restart matters: `uvicorn` reads the certificate once at
@@ -52,10 +52,15 @@ latest_temporal="$(find "$HOME/olympus-backups" -maxdepth 1 -type d -name 'tempo
 scripts/temporal-restore-drill.sh "$latest_temporal"
 ```
 
-The drill creates a network-isolated PostgreSQL container with tmpfs storage,
-restores and queries the backup, then removes the container. Local backups are
-not disaster recovery: an encrypted off-host copy remains required before the
-backup gate is complete.
+The local drill creates a network-isolated PostgreSQL container with tmpfs
+storage, restores and queries the backup, then removes the container. A timer
+run succeeds only after its archive is uploaded with explicit AES-256 server-
+side encryption, verified Object Lock retention, a pinned-key Ed25519
+attestation, and an owner-only local receipt. The five-minute health check
+fails when that receipt is older than 26 hours.
+
+For direct clean-host recovery and the measured RPO/RTO drill, follow
+`docs/operations/temporal-disaster-recovery.md`.
 
 Run `systemd-analyze --user verify deploy/systemd/*.service deploy/systemd/*.timer`
 before installing unit changes. Copy units, reload, start each oneshot manually,
