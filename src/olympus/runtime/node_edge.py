@@ -30,11 +30,16 @@ _log = logging.getLogger(__name__)
 async def open_node_mesh_store(settings: GatewaySettings) -> tuple[NodeMeshStore | None, str]:
     """Open the canonical store, or report that none is configured.
 
-    Returning ``None`` selects the in-process store. That is correct for tests
-    and the offline demonstration and wrong for a deployed control plane, so
-    the caller announces the choice rather than letting it pass unnoticed.
+    Returning ``None`` selects the in-process store. That is correct only when
+    a test or the offline demonstration explicitly opted into volatile state.
     """
     if settings.database_url is None:
+        if not settings.node_allow_volatile_state:
+            raise RuntimeError(
+                "node mesh requires FIRE_DATABASE_URL (legacy OLYMPUS_DATABASE_URL); "
+                "volatile state is allowed only with "
+                "FIRE_NODE_ALLOW_VOLATILE_STATE=true in a disposable test or demo"
+            )
         return None, "in-process (volatile: state is lost on restart)"
     # Imported lazily so a mesh running without PostgreSQL does not need the
     # driver installed.
@@ -72,14 +77,22 @@ class TemporalNodeJobStarter:
 def resolve_control_plane_keys(settings: GatewaySettings) -> tuple[str, str]:
     """Return the control-plane signing key pair, generating an ephemeral one if unset.
 
-    An ephemeral key is a development convenience only: every already-enrolled
-    node pinned the previous public key at enrollment and will refuse the new
-    one, which is the intended failure rather than a silent downgrade.
+    An ephemeral key is a development convenience requiring explicit opt-in:
+    every already-enrolled node pinned the previous public key at enrollment
+    and will refuse a replacement, which is the intended failure rather than a
+    silent downgrade.
     """
     configured = settings.node_control_plane_private_key
     if configured is not None:
         private_key = configured.get_secret_value()
         return private_key, public_key_of(private_key)
+    if not settings.node_allow_ephemeral_control_plane_key:
+        raise RuntimeError(
+            "node mesh requires FIRE_NODE_CONTROL_PLANE_PRIVATE_KEY "
+            "(legacy OLYMPUS_NODE_CONTROL_PLANE_PRIVATE_KEY); ephemeral signing "
+            "is allowed only with FIRE_NODE_ALLOW_EPHEMERAL_CONTROL_PLANE_KEY=true "
+            "in a disposable test or demo"
+        )
     generated = generate_node_keypair()
     return generated.private_key, generated.public_key
 

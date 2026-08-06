@@ -62,6 +62,8 @@ async def main() -> int:
         dev_command_token=SecretStr(operator_headers["Authorization"].removeprefix("Bearer ")),
         http_port=port,
         node_mesh_enabled=True,
+        node_allow_volatile_state=True,
+        node_allow_ephemeral_control_plane_key=True,
         node_heartbeat_interval_seconds=2,
         node_heartbeat_expiry_seconds=10,
     )
