@@ -10,7 +10,6 @@ WorkingDirectory=/home/ubuntu/olympus
 ExecStart=/home/ubuntu/olympus/scripts/postgres-backup.sh
 NoNewPrivileges=true
 PrivateTmp=true
-PrivateDevices=true
 ProtectSystem=full
 ProtectHome=read-only
 ReadWritePaths=/home/ubuntu/olympus-backups

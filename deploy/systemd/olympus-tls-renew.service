@@ -8,7 +8,6 @@ Type=oneshot
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
-PrivateDevices=true
 ProtectSystem=full
 ProtectHome=read-only
 ReadWritePaths=/home/ubuntu/olympus/run/tls
