@@ -265,9 +265,13 @@ def test_signed_enrollment_token_is_authentic_and_tamper_evident() -> None:
     assert signed.startswith("olynodev2.")
     assert verify_signed_enrollment_token(keys.public_key, signed) == secret.presented
 
-    replacement = "A" if signed[-1] != "A" else "B"
+    prefix, body, signature = signed.split(".")
+    replacement = "A" if signature[0] != "A" else "B"
     with pytest.raises(NodeMeshError) as tampered:
-        verify_signed_enrollment_token(keys.public_key, f"{signed[:-1]}{replacement}")
+        verify_signed_enrollment_token(
+            keys.public_key,
+            f"{prefix}.{body}.{replacement}{signature[1:]}",
+        )
     assert tampered.value.reason is NodeReason.ENROLLMENT_CREDENTIAL_MISMATCH
 
 
