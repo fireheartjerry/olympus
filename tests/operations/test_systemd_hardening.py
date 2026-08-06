@@ -56,6 +56,18 @@ def test_backup_is_atomic_and_restore_drill_is_disposable() -> None:
     assert 'docker rm --force "$drill_container"' in restore
 
 
+def test_health_check_only_pages_on_swap_when_memory_is_low() -> None:
+    health = (ROOT / "scripts" / "production-health-check.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "OLYMPUS_MEMORY_AVAILABLE_WARN_PERCENT" in health
+    assert (
+        "swap_percent >= swap_warn_percent && "
+        "memory_available_percent < memory_available_warn_percent"
+    ) in health
+
+
 def test_postgres_definition_is_pinned_loopback_only_and_reuses_live_volume() -> None:
     compose = (ROOT / "deploy" / "postgres" / "compose.yaml").read_text(encoding="utf-8")
 

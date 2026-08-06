@@ -4,6 +4,7 @@ set -euo pipefail
 
 disk_warn_percent="${OLYMPUS_DISK_WARN_PERCENT:-80}"
 swap_warn_percent="${OLYMPUS_SWAP_WARN_PERCENT:-95}"
+memory_available_warn_percent="${OLYMPUS_MEMORY_AVAILABLE_WARN_PERCENT:-20}"
 container="${OLYMPUS_POSTGRES_CONTAINER:-olympus-postgres}"
 
 failures=()
@@ -13,13 +14,16 @@ if (( disk_percent >= disk_warn_percent )); then
   failures+=("root-disk=${disk_percent}%")
 fi
 
+read -r memory_total memory_available < <(free -b | awk '/^Mem:/ {print $2, $7}')
+memory_available_percent=$((memory_available * 100 / memory_total))
+
 read -r swap_total swap_used < <(free -b | awk '/^Swap:/ {print $2, $3}')
 swap_percent=0
 if (( swap_total > 0 )); then
   swap_percent=$((swap_used * 100 / swap_total))
 fi
-if (( swap_percent >= swap_warn_percent )); then
-  failures+=("swap=${swap_percent}%")
+if (( swap_percent >= swap_warn_percent && memory_available_percent < memory_available_warn_percent )); then
+  failures+=("memory-available=${memory_available_percent}% swap=${swap_percent}%")
 fi
 
 if ! systemctl --user is-active --quiet olympus-gateway.service; then
@@ -37,5 +41,5 @@ if (( ${#failures[@]} > 0 )); then
   exit 1
 fi
 
-printf 'Fire production health OK: root-disk=%s%% swap=%s%% gateway=active audit-timer=active postgres=ready\n' \
-  "$disk_percent" "$swap_percent"
+printf 'Fire production health OK: root-disk=%s%% memory-available=%s%% swap=%s%% gateway=active audit-timer=active postgres=ready\n' \
+  "$disk_percent" "$memory_available_percent" "$swap_percent"
