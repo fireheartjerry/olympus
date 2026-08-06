@@ -14,7 +14,17 @@ RestartSec=3
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=full
+ProtectHome=read-only
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+TasksMax=256
+MemoryHigh=768M
+MemoryMax=1G
 
 [Install]
 WantedBy=default.target

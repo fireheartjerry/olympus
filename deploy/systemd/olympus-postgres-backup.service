@@ -1,23 +1,21 @@
 [Unit]
-Description=Export the Olympus authority audit chain to signed write-once storage
-After=network-online.target
+Description=Create and locally verify an Olympus authority PostgreSQL backup
+After=network-online.target docker.service olympus-gateway.service
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 UMask=0077
 WorkingDirectory=/home/ubuntu/olympus
-ExecStart=/home/ubuntu/olympus/.venv/bin/python -m olympus.runtime.audit_export_job
+ExecStart=/home/ubuntu/olympus/scripts/postgres-backup.sh
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=full
 ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/olympus-backups
 CapabilityBoundingSet=
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictAddressFamilies=AF_UNIX
 LockPersonality=true
 RestrictRealtime=true
 SystemCallArchitectures=native
-
-[Install]
-WantedBy=default.target

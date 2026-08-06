@@ -1,0 +1,18 @@
+[Unit]
+Description=Check Olympus authority services and capacity bounds
+After=olympus-gateway.service olympus-audit-export.timer
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/olympus
+ExecStart=/home/ubuntu/olympus/scripts/production-health-check.sh
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=read-only
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
