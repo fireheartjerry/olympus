@@ -2,7 +2,9 @@
 
 This is Fire's single-host production pilot: the official `temporalio/server`
 image is pinned by digest, schemas are managed explicitly, PostgreSQL owns all
-durable state, and the only published listener is OVH loopback port 7233.
+durable state, and host networking is safe because every Temporal service
+binds explicitly to OVH loopback. The frontend is `127.0.0.1:7233`; Temporal
+reaches the already-loopback-only PostgreSQL listener at `127.0.0.1:5433`.
 
 It is intentionally not high availability. A host loss causes downtime until
 OVH is restored; it must not cause workflow-state loss when the PostgreSQL

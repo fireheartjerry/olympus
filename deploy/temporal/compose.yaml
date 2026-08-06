@@ -41,14 +41,14 @@ services:
       schema:
         condition: service_completed_successfully
     environment:
-      BIND_ON_IP: 0.0.0.0
+      BIND_ON_IP: 127.0.0.1
       DB: postgres12
       DBNAME: temporal
-      DB_PORT: "5432"
+      DB_PORT: "5433"
       DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/production-sql.yaml
       LOG_LEVEL: info
       NUM_HISTORY_SHARDS: "4"
-      POSTGRES_SEEDS: olympus-postgres
+      POSTGRES_SEEDS: 127.0.0.1
       POSTGRES_USER: temporal
       SQL_MAX_CONNS: "12"
       SQL_MAX_IDLE_CONNS: "6"
@@ -59,9 +59,10 @@ services:
       - temporal_postgres_password
     volumes:
       - ./dynamicconfig:/etc/temporal/config/dynamicconfig:ro
-    networks: [authority_backend]
-    ports:
-      - "127.0.0.1:7233:7233"
+    # Host networking avoids a Docker NAT failure mode while remaining private:
+    # every Temporal RPC service binds only 127.0.0.1, and PostgreSQL is already
+    # published only on host loopback port 5433.
+    network_mode: host
     healthcheck:
       test: ["CMD", "nc", "-z", "127.0.0.1", "7233"]
       interval: 10s
@@ -95,10 +96,10 @@ services:
     environment:
       DEFAULT_NAMESPACE: default
       NAMESPACE_RETENTION: 7d
-      TEMPORAL_ADDRESS: server:7233
+      TEMPORAL_ADDRESS: 127.0.0.1:7233
     volumes:
       - ./scripts/create-namespace.sh:/opt/fire/create-namespace.sh:ro
-    networks: [authority_backend]
+    network_mode: host
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
