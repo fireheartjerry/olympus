@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "olympus"
 version = "0.1.0"
-description = "Governed durable orchestration for the Olympus agent platform"
+description = "Governed durable orchestration for the Fire agent platform"
 requires-python = ">=3.13,<3.14"
 dependencies = [
   "alembic>=1.16,<2",
@@ -60,6 +60,7 @@ include = [
   "/pyproject.toml",
   "/README.md",
   "/src/olympus",
+  "/src/fire",
 ]
 exclude = [
   "/.env",
@@ -74,7 +75,7 @@ exclude = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/olympus"]
+packages = ["src/olympus", "src/fire"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
@@ -94,7 +95,7 @@ select = ["E", "F", "I", "B", "UP", "ASYNC", "S"]
 [tool.mypy]
 python_version = "3.13"
 strict = true
-packages = ["olympus"]
+packages = ["olympus", "fire"]
 mypy_path = ["src"]
 
 # boto3 ships no type information and is an optional extra, so it is absent in

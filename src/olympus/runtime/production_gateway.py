@@ -98,7 +98,7 @@ def _tls_context(settings: ProductionGatewaySettings) -> ssl.SSLContext:
 
 
 async def run() -> None:
-    settings = ProductionGatewaySettings()  # type: ignore[call-arg]  # values come from environment
+    settings = ProductionGatewaySettings()
 
     engine = create_async_engine(settings.database_dsn.get_secret_value())
     sessions = async_sessionmaker(engine, expire_on_commit=False)

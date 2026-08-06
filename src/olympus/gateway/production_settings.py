@@ -2,10 +2,12 @@ import ipaddress
 import re
 from datetime import timedelta
 from pathlib import Path
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import AnyHttpUrl, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from olympus.settings_compat import apply_fire_environment_aliases
 
 _SNOWFLAKE = re.compile(r"[0-9]{17,20}")
 _HEX_32_BYTES = re.compile(r"[0-9a-fA-F]{64}")
@@ -67,6 +69,16 @@ class ProductionGatewaySettings(BaseSettings):
     audit_export_profile: str | None = None
     audit_export_retention_days: int = Field(default=30, ge=1)
     audit_export_retention_mode: Literal["GOVERNANCE", "COMPLIANCE"] = "GOVERNANCE"
+
+    def __init__(self, **values: Any) -> None:
+        super().__init__(
+            **apply_fire_environment_aliases(
+                values,
+                fields=type(self).model_fields,
+                canonical_prefix="FIRE_PRODUCTION_",
+                legacy_prefix="OLYMPUS_PRODUCTION_",
+            )
+        )
 
     @field_validator("http_host")
     @classmethod

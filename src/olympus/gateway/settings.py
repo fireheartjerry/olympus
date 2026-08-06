@@ -1,7 +1,9 @@
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from olympus.settings_compat import apply_fire_environment_aliases
 
 
 class GatewaySettings(BaseSettings):
@@ -34,6 +36,16 @@ class GatewaySettings(BaseSettings):
     # grant, revocation, freeze, and audit event on restart. The runtime says
     # which store it chose at startup so that fallback is never silent.
     database_url: SecretStr | None = None
+
+    def __init__(self, **values: Any) -> None:
+        super().__init__(
+            **apply_fire_environment_aliases(
+                values,
+                fields=type(self).model_fields,
+                canonical_prefix="FIRE_",
+                legacy_prefix="OLYMPUS_",
+            )
+        )
 
     @field_validator("database_url", mode="before")
     @classmethod

@@ -9,7 +9,7 @@ from olympus.workflows.command import CommandWorkflow
 
 
 async def run() -> None:
-    settings = GatewaySettings()  # type: ignore[call-arg]  # required values come from environment
+    settings = GatewaySettings()
     client = await Client.connect(settings.temporal_address)
     worker = Worker(
         client,
