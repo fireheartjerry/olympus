@@ -1,6 +1,7 @@
 import ssl
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed, WebSocketException
@@ -40,9 +41,15 @@ async def open_session_channel(
 ) -> AsyncIterator[WebSocketClientChannel]:
     """Dial the control plane. Nodes only ever connect outbound; they never listen."""
     try:
+        # websockets 15 rejects ``ssl=None`` for a wss:// URI. Omitting the
+        # argument delegates to its verified system-default TLS context; pass
+        # the option only when a caller deliberately supplied a context.
+        tls_options: dict[str, Any] = {}
+        if ssl_context is not None:
+            tls_options["ssl"] = ssl_context
         async with connect(
             url,
-            ssl=ssl_context,
+            **tls_options,
             max_size=MAX_FRAME_BYTES,
             open_timeout=OPEN_TIMEOUT_SECONDS,
             ping_interval=20,

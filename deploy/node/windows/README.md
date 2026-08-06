@@ -54,6 +54,11 @@ deleted or a key needs rotating).
 If you install outside of `ProgramData` (e.g. `-InstallRoot "$env:LOCALAPPDATA\Olympus\node"`),
 elevation is not required and the task runs as your own user account.
 
+On managed Windows installations that deny Task Scheduler registration to a
+non-admin process, the installer falls back to the current user's `HKCU\...\Run`
+logon entry and launches the same limited, outbound-only wrapper immediately.
+It does not request elevation or weaken the node's capability grant.
+
 ### SYSTEM-scoped alternative
 
 If `-InstallRoot` is under `ProgramData`, this script always registers the
