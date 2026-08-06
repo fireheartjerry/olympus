@@ -10,7 +10,12 @@ does not need it. Nothing here binds a privileged port or writes outside
 ```bash
 cp deploy/systemd/*.service deploy/systemd/*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now olympus-gateway.service olympus-tls-renew.timer
+systemctl --user enable --now \
+  olympus-gateway.service \
+  olympus-audit-export.timer \
+  olympus-tls-renew.timer \
+  olympus-postgres-backup.timer \
+  olympus-health-check.timer
 loginctl enable-linger "$USER"   # so both survive logout and reboot
 ```
 
@@ -22,7 +27,27 @@ takes the gateway with it.
 | `olympus-gateway.service` | The authority gateway on `100.67.123.50:9443`, `Restart=on-failure` |
 | `olympus-tls-renew.timer` | Daily certificate check, randomized by up to an hour |
 | `olympus-tls-renew.service` | Runs `tailscale cert`, then restarts the gateway **only if the certificate actually changed** |
+| `olympus-postgres-backup.timer` | Daily atomic custom-format PostgreSQL backup with archive and SHA-256 verification |
+| `olympus-health-check.timer` | Five-minute disk, swap, gateway, audit-timer, and PostgreSQL readiness check |
 
 The conditional restart matters: `uvicorn` reads the certificate once at
 startup, so a renewal needs a restart to take effect — but restarting daily
 would interrupt a ceremony on the ~89 days a year nothing changed.
+
+Backups are written with mode `0600` under `~/olympus-backups`. Prove a backup
+before trusting it:
+
+```bash
+latest="$(find "$HOME/olympus-backups" -maxdepth 1 -type f -name 'authority-*.dump' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+scripts/postgres-restore-drill.sh "$latest"
+```
+
+The drill creates a network-isolated PostgreSQL container with tmpfs storage,
+restores and queries the backup, then removes the container. Local backups are
+not disaster recovery: an encrypted off-host copy remains required before the
+backup gate is complete.
+
+Run `systemd-analyze --user verify deploy/systemd/*.service deploy/systemd/*.timer`
+before installing unit changes. Copy units, reload, start each oneshot manually,
+and only then enable its timer. Do not restart the healthy gateway merely to
+install a timer.
