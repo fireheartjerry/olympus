@@ -1,0 +1,1007 @@
+{
+  "deploy/helm/olympus-foundation/tests/verify.ps1": {
+    "mtime": 1785312297.288233,
+    "ast_hash": "dd1e22ff894afc98c1d06207d37bd9f6",
+    "semantic_hash": ""
+  },
+  "deploy/helm/olympus-foundation/values.schema.json": {
+    "mtime": 1785312297.288233,
+    "ast_hash": "8e63742a7d75c6ed4c62ae9fe2472e3e",
+    "semantic_hash": ""
+  },
+  "deploy/node/windows/Install-OlympusNode.ps1": {
+    "mtime": 1785625028.1870427,
+    "ast_hash": "1d2be65d3fc083494c626687543833d9",
+    "semantic_hash": ""
+  },
+  "migrations/env.py": {
+    "mtime": 1785636873.421631,
+    "ast_hash": "a30d59f0bb20946ff1a0ac47b9560308",
+    "semantic_hash": ""
+  },
+  "migrations/versions/20260729_01_authority_control.py": {
+    "mtime": 1785636873.421631,
+    "ast_hash": "dc9b1ee4a0a62569079c8e85bc8ea49c",
+    "semantic_hash": ""
+  },
+  "pyproject.toml": {
+    "mtime": 1785638125.8531668,
+    "ast_hash": "732f724a11cdf6bb7d3c0b97f167ec53",
+    "semantic_hash": ""
+  },
+  "scripts/audit_export_live_proof.py": {
+    "mtime": 1785636873.422631,
+    "ast_hash": "24b54e8434aacdc15c339c16e13fc51e",
+    "semantic_hash": ""
+  },
+  "scripts/restart-gateway-if-cert-changed.sh": {
+    "mtime": 1785637685.7722208,
+    "ast_hash": "16595ea72a02dc3e65055f5efdfd39b9",
+    "semantic_hash": ""
+  },
+  "src/olympus/__init__.py": {
+    "mtime": 1785312297.2902331,
+    "ast_hash": "3c858e4cc2a7c7db87211ae3f383721d",
+    "semantic_hash": ""
+  },
+  "src/olympus/activities/__init__.py": {
+    "mtime": 1785312297.2902331,
+    "ast_hash": "c36bda33663a0dc7378308ce2bcfd7a0",
+    "semantic_hash": ""
+  },
+  "src/olympus/activities/compile_graph.py": {
+    "mtime": 1785312297.2902331,
+    "ast_hash": "f2c42624c4c944fc189d008121e301ad",
+    "semantic_hash": ""
+  },
+  "src/olympus/activities/node_dispatch.py": {
+    "mtime": 1785626556.8382742,
+    "ast_hash": "8e6064d2d1ccc0c517e58a5833415ada",
+    "semantic_hash": ""
+  },
+  "src/olympus/audit_export/__init__.py": {
+    "mtime": 1785636873.422631,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/olympus/audit_export/exporter.py": {
+    "mtime": 1785636873.422631,
+    "ast_hash": "fd4f7fe374b5c209faf3528dc6b3d717",
+    "semantic_hash": ""
+  },
+  "src/olympus/audit_export/models.py": {
+    "mtime": 1785637427.4728217,
+    "ast_hash": "d8fda49958d67dac9b95bcb06cd05284",
+    "semantic_hash": ""
+  },
+  "src/olympus/audit_export/offline_verify.py": {
+    "mtime": 1785636873.422631,
+    "ast_hash": "f21eebdc086c793a0ad96fb34d35f79e",
+    "semantic_hash": ""
+  },
+  "src/olympus/audit_export/signing.py": {
+    "mtime": 1785636873.422631,
+    "ast_hash": "cab749bc7fdac6f904236b5e485b348d",
+    "semantic_hash": ""
+  },
+  "src/olympus/audit_export/store.py": {
+    "mtime": 1785636873.422631,
+    "ast_hash": "9c5118ae0ecbf5f7d5773a1140f9dc21",
+    "semantic_hash": ""
+  },
+  "src/olympus/audit_export/trust.py": {
+    "mtime": 1785636873.422631,
+    "ast_hash": "1c0d31bad1d0caeba8b22970543b3fab",
+    "semantic_hash": ""
+  },
+  "src/olympus/audit_export/trusted_signers.json": {
+    "mtime": 1785636873.423631,
+    "ast_hash": "7d9e0fca2e7e7d832dfc5eec30ae7867",
+    "semantic_hash": ""
+  },
+  "src/olympus/authority/__init__.py": {
+    "mtime": 1785636873.423631,
+    "ast_hash": "9c227cde5255bafb23a806afdbd71109",
+    "semantic_hash": ""
+  },
+  "src/olympus/authority/latch.py": {
+    "mtime": 1785636873.423631,
+    "ast_hash": "c9c7a99ab275241971205dd5d5817103",
+    "semantic_hash": ""
+  },
+  "src/olympus/authority/models.py": {
+    "mtime": 1785636873.423631,
+    "ast_hash": "98181bcf0ae192301e497525cb8d6c31",
+    "semantic_hash": ""
+  },
+  "src/olympus/authority/node_approvals.py": {
+    "mtime": 1785652493.5728893,
+    "ast_hash": "6ac849ebd3405ccc45e5803ec9682482",
+    "semantic_hash": ""
+  },
+  "src/olympus/authority/repository.py": {
+    "mtime": 1785637616.4909801,
+    "ast_hash": "e7bc9bf50528ebf386a386dae1415053",
+    "semantic_hash": ""
+  },
+  "src/olympus/authority/sqlalchemy.py": {
+    "mtime": 1785637616.4909801,
+    "ast_hash": "6c72162224b9ba64bd274cd8639f78fe",
+    "semantic_hash": ""
+  },
+  "src/olympus/broker/__init__.py": {
+    "mtime": 1785636873.423631,
+    "ast_hash": "53914e411380af4b3bca630941e1f0f6",
+    "semantic_hash": ""
+  },
+  "src/olympus/broker/root.py": {
+    "mtime": 1785636873.424631,
+    "ast_hash": "c56ddf7b759621823412002547b86aa6",
+    "semantic_hash": ""
+  },
+  "src/olympus/capacity/__init__.py": {
+    "mtime": 1785312297.291233,
+    "ast_hash": "dbad6e8b20f4649494b7461763840e3d",
+    "semantic_hash": ""
+  },
+  "src/olympus/capacity/burst.py": {
+    "mtime": 1785636873.424631,
+    "ast_hash": "fc605067d0a481cbb628f96bd2c64beb",
+    "semantic_hash": ""
+  },
+  "src/olympus/capacity/models.py": {
+    "mtime": 1785312297.291233,
+    "ast_hash": "c39a37757f502c2cd5d07d73ebf321ea",
+    "semantic_hash": ""
+  },
+  "src/olympus/contracts/__init__.py": {
+    "mtime": 1785312297.291233,
+    "ast_hash": "0e9015f6a6450c922bf4efbf4ac658db",
+    "semantic_hash": ""
+  },
+  "src/olympus/contracts/commands.py": {
+    "mtime": 1785636873.424631,
+    "ast_hash": "f0aaf852e7094cd51a036ca161e8138d",
+    "semantic_hash": ""
+  },
+  "src/olympus/control/__init__.py": {
+    "mtime": 1785636873.424631,
+    "ast_hash": "e21b2a33f32e6686bf79fc5fd02168b7",
+    "semantic_hash": ""
+  },
+  "src/olympus/control/models.py": {
+    "mtime": 1785636873.424631,
+    "ast_hash": "cccf841633222fdb17d109a77ccadd9c",
+    "semantic_hash": ""
+  },
+  "src/olympus/control/workflow.py": {
+    "mtime": 1785636873.424631,
+    "ast_hash": "5f8a288658b1234ebf2fe9b0162821c8",
+    "semantic_hash": ""
+  },
+  "src/olympus/demo/__init__.py": {
+    "mtime": 1785623848.789799,
+    "ast_hash": "ab8c7298031208eaa539e37d902d3a7e",
+    "semantic_hash": ""
+  },
+  "src/olympus/demo/node_mesh.py": {
+    "mtime": 1785626568.1279917,
+    "ast_hash": "7211d8eb3fcbc544d070ceb5a8797970",
+    "semantic_hash": ""
+  },
+  "src/olympus/discord/__init__.py": {
+    "mtime": 1785636873.424631,
+    "ast_hash": "cb74da19a9aea21105cf18a06da7aebb",
+    "semantic_hash": ""
+  },
+  "src/olympus/discord/contracts.py": {
+    "mtime": 1785636873.424631,
+    "ast_hash": "cd1172ad8254438d473892edb4a78849",
+    "semantic_hash": ""
+  },
+  "src/olympus/discord/service.py": {
+    "mtime": 1785636873.425631,
+    "ast_hash": "6efe3b7849977238ea69f455ea849744",
+    "semantic_hash": ""
+  },
+  "src/olympus/discord/verify.py": {
+    "mtime": 1785636873.425631,
+    "ast_hash": "c6ce4fdc9a116f0204b9d7c367bef4dc",
+    "semantic_hash": ""
+  },
+  "src/olympus/effects/__init__.py": {
+    "mtime": 1785636873.425631,
+    "ast_hash": "922521ee96a152e4be998cf4d64bfed5",
+    "semantic_hash": ""
+  },
+  "src/olympus/effects/ledger.py": {
+    "mtime": 1785636873.425631,
+    "ast_hash": "e52759d6cb5a60df669d994924ed291a",
+    "semantic_hash": ""
+  },
+  "src/olympus/gateway/__init__.py": {
+    "mtime": 1785312297.291233,
+    "ast_hash": "45a1e7cb738a184317c18b38dec8b93c",
+    "semantic_hash": ""
+  },
+  "src/olympus/gateway/app.py": {
+    "mtime": 1785623418.7416465,
+    "ast_hash": "6a5dc910829dc3ff53ae50c4252d27ff",
+    "semantic_hash": ""
+  },
+  "src/olympus/gateway/auth.py": {
+    "mtime": 1785623716.0638463,
+    "ast_hash": "0a58593e48b21cf3ae56462a2f0f5d96",
+    "semantic_hash": ""
+  },
+  "src/olympus/gateway/nodes_api.py": {
+    "mtime": 1785653105.3194094,
+    "ast_hash": "778bf2dc8449bb46ea96335cb3e9cd70",
+    "semantic_hash": ""
+  },
+  "src/olympus/gateway/production.py": {
+    "mtime": 1785648364.8170338,
+    "ast_hash": "8878524da3822b6442c871ae31ea8a96",
+    "semantic_hash": ""
+  },
+  "src/olympus/gateway/production_settings.py": {
+    "mtime": 1785652926.6657035,
+    "ast_hash": "6723c0e8ecd718d8e96a1f4d324c53d1",
+    "semantic_hash": ""
+  },
+  "src/olympus/gateway/settings.py": {
+    "mtime": 1785629184.467904,
+    "ast_hash": "eee0a43fad11a62e4a25be5ec11ab85a",
+    "semantic_hash": ""
+  },
+  "src/olympus/gateway/ui.py": {
+    "mtime": 1785623593.1566625,
+    "ast_hash": "d99095e77d89d876b8f7c3ccec924e9c",
+    "semantic_hash": ""
+  },
+  "src/olympus/governance/__init__.py": {
+    "mtime": 1785636873.425631,
+    "ast_hash": "bcdfdaf7eff0fe42e9def94eefc75820",
+    "semantic_hash": ""
+  },
+  "src/olympus/governance/authorization.py": {
+    "mtime": 1785636873.425631,
+    "ast_hash": "ac4240560282c27d2defb5eb77f693fd",
+    "semantic_hash": ""
+  },
+  "src/olympus/governance/policy.py": {
+    "mtime": 1785636873.426631,
+    "ast_hash": "eb3a1561813ab5df094e118650c5e331",
+    "semantic_hash": ""
+  },
+  "src/olympus/graphs/__init__.py": {
+    "mtime": 1785312297.291233,
+    "ast_hash": "3208ef9fdaddd516952ac9bfdff98807",
+    "semantic_hash": ""
+  },
+  "src/olympus/graphs/compiler.py": {
+    "mtime": 1785636873.426631,
+    "ast_hash": "b934fbc1298e2df20ce69de338d15d28",
+    "semantic_hash": ""
+  },
+  "src/olympus/graphs/models.py": {
+    "mtime": 1785636873.426631,
+    "ast_hash": "03d0833cb9191204ea223edc7bb6a1a6",
+    "semantic_hash": ""
+  },
+  "src/olympus/integrations/__init__.py": {
+    "mtime": 1785636873.426631,
+    "ast_hash": "7ba3a7cc6071299ad0cea5c358d69e12",
+    "semantic_hash": ""
+  },
+  "src/olympus/integrations/shadow.py": {
+    "mtime": 1785636873.426631,
+    "ast_hash": "57b7105fcdf076b32e1e4e381ec8d39b",
+    "semantic_hash": ""
+  },
+  "src/olympus/node_agent/__init__.py": {
+    "mtime": 1785622937.8605034,
+    "ast_hash": "6ed39d47976be3bcbd35df5ea6dd1e0d",
+    "semantic_hash": ""
+  },
+  "src/olympus/node_agent/__main__.py": {
+    "mtime": 1785652833.361248,
+    "ast_hash": "fc10a4ea40638007e88c95a9a41ce362",
+    "semantic_hash": ""
+  },
+  "src/olympus/node_agent/agent.py": {
+    "mtime": 1785653929.882795,
+    "ast_hash": "12051527ff49b268fb9a4a4d53734d79",
+    "semantic_hash": ""
+  },
+  "src/olympus/node_agent/capabilities.py": {
+    "mtime": 1785626588.0024958,
+    "ast_hash": "16ec103d40c2989ba85fe2ee997031fc",
+    "semantic_hash": ""
+  },
+  "src/olympus/node_agent/config.py": {
+    "mtime": 1785623254.1783876,
+    "ast_hash": "d7a852e21e9013e388beea4ba19a9186",
+    "semantic_hash": ""
+  },
+  "src/olympus/node_agent/enroll.py": {
+    "mtime": 1785623834.7501216,
+    "ast_hash": "1ae3714c07d9a8fd383c4e0269623012",
+    "semantic_hash": ""
+  },
+  "src/olympus/node_agent/file_read.py": {
+    "mtime": 1785652859.536233,
+    "ast_hash": "b7499d1e9ae242c3bd8b8b337fee24dd",
+    "semantic_hash": ""
+  },
+  "src/olympus/node_agent/file_write.py": {
+    "mtime": 1785648791.4634712,
+    "ast_hash": "2a638c87e501f1a2ebe62828c14e96eb",
+    "semantic_hash": ""
+  },
+  "src/olympus/node_agent/transport.py": {
+    "mtime": 1785623276.5448804,
+    "ast_hash": "bb90020aa1b6b2539cf903d6f44848f1",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/__init__.py": {
+    "mtime": 1785622361.9289267,
+    "ast_hash": "6a4035244ea36714c860f7e995ac6584",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/audit.py": {
+    "mtime": 1785628769.7010567,
+    "ast_hash": "ed59e8e464dba0b068e013a475feb673",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/capabilities.py": {
+    "mtime": 1785652755.9993541,
+    "ast_hash": "8fb875c57e5136b5eabcb9e088e3351f",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/channel.py": {
+    "mtime": 1785627741.0053227,
+    "ast_hash": "db10b79385ec2922c74b6aa503d2b950",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/crypto.py": {
+    "mtime": 1785623153.022676,
+    "ast_hash": "eb32d462ca1a0cde9c154c6ffa895d9c",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/dispatch.py": {
+    "mtime": 1785652648.6059678,
+    "ast_hash": "9fb7ba8db9826f7b50363d0ce729e0a6",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/errors.py": {
+    "mtime": 1785623636.5536687,
+    "ast_hash": "e42cb571c2f85405e210711a2886c586",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/local_node.py": {
+    "mtime": 1785623688.995467,
+    "ast_hash": "2e23369a21bd1927d4b2d2930499618a",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/models.py": {
+    "mtime": 1785653766.6973383,
+    "ast_hash": "92cbcc65ffa937e4c23105494c1ee39a",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/protocol.py": {
+    "mtime": 1785653929.854796,
+    "ast_hash": "ea544f7abed16384a117c585e38ac45f",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/redaction.py": {
+    "mtime": 1785653861.8026793,
+    "ast_hash": "48949a50dad5277e5e61f679ab9229ac",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/registry.py": {
+    "mtime": 1785653171.2692168,
+    "ast_hash": "84fb7986b43be9754c7b8f6289ac0c4c",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/scopes.py": {
+    "mtime": 1785652755.931357,
+    "ast_hash": "cc6bff1b0abb7e447c3a9f57648a91d6",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/session.py": {
+    "mtime": 1785653929.9097943,
+    "ast_hash": "d44be5795655f7a9ceffea17038da23d",
+    "semantic_hash": ""
+  },
+  "src/olympus/nodes/store.py": {
+    "mtime": 1785629363.1896133,
+    "ast_hash": "a6ba7d455747abf812de2802492df5a2",
+    "semantic_hash": ""
+  },
+  "src/olympus/operations/__init__.py": {
+    "mtime": 1785636873.426631,
+    "ast_hash": "fd4cc7ba80d68ea32be00e5e4fe5b1a4",
+    "semantic_hash": ""
+  },
+  "src/olympus/operations/autonomy.py": {
+    "mtime": 1785636873.426631,
+    "ast_hash": "0ebc63a63064e2286580d75150c9c4ca",
+    "semantic_hash": ""
+  },
+  "src/olympus/operations/control_plane.py": {
+    "mtime": 1785636873.426631,
+    "ast_hash": "f8d61d5c71b3928e98aca8693966e2c7",
+    "semantic_hash": ""
+  },
+  "src/olympus/operations/nodes_cli.py": {
+    "mtime": 1785654139.6640697,
+    "ast_hash": "8a1674415211344f4d8239491aca271c",
+    "semantic_hash": ""
+  },
+  "src/olympus/persistence/__init__.py": {
+    "mtime": 1785636873.426631,
+    "ast_hash": "ab2f7086beb08f241c5e946cacf5c678",
+    "semantic_hash": ""
+  },
+  "src/olympus/persistence/migrations/0001_node_mesh.sql": {
+    "mtime": 1785628819.6798131,
+    "ast_hash": "0e7f5649c5e5319656409feb6bfa2fc7",
+    "semantic_hash": ""
+  },
+  "src/olympus/persistence/migrations/0002_capability_scopes.sql": {
+    "mtime": 1785638991.521217,
+    "ast_hash": "8a3e3ffd72d949470508116168f1f834",
+    "semantic_hash": ""
+  },
+  "src/olympus/persistence/migrations/__init__.py": {
+    "mtime": 1785628896.1209238,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/olympus/persistence/migrator.py": {
+    "mtime": 1785629084.3623252,
+    "ast_hash": "8a9824a3800f1986564abcd3416caccc",
+    "semantic_hash": ""
+  },
+  "src/olympus/persistence/models.py": {
+    "mtime": 1785636873.4286308,
+    "ast_hash": "228bf47a72b0b2d70601d45556af764f",
+    "semantic_hash": ""
+  },
+  "src/olympus/persistence/ownership.py": {
+    "mtime": 1785636873.4286308,
+    "ast_hash": "03de43a990ce64a4952432772c8a1f2a",
+    "semantic_hash": ""
+  },
+  "src/olympus/persistence/postgres_store.py": {
+    "mtime": 1785639194.7119772,
+    "ast_hash": "9bd4b4d1f661802b57920bf9caa4435b",
+    "semantic_hash": ""
+  },
+  "src/olympus/runtime/__init__.py": {
+    "mtime": 1785312297.291233,
+    "ast_hash": "17ad39f9358b46d1311622a5c0bc0d33",
+    "semantic_hash": ""
+  },
+  "src/olympus/runtime/audit_export_job.py": {
+    "mtime": 1785652963.9093425,
+    "ast_hash": "b2fda78886dc5554d1fad9a937a74457",
+    "semantic_hash": ""
+  },
+  "src/olympus/runtime/gateway.py": {
+    "mtime": 1785312297.291233,
+    "ast_hash": "5f2f202c1486ed55e48b7895b06c84c6",
+    "semantic_hash": ""
+  },
+  "src/olympus/runtime/node_edge.py": {
+    "mtime": 1785629244.497459,
+    "ast_hash": "f001c39587687c89a61069bd1576eb2c",
+    "semantic_hash": ""
+  },
+  "src/olympus/runtime/production_gateway.py": {
+    "mtime": 1785636873.4286308,
+    "ast_hash": "6fce6c9e4e7651a82776339722688b11",
+    "semantic_hash": ""
+  },
+  "src/olympus/runtime/worker.py": {
+    "mtime": 1785312297.291233,
+    "ast_hash": "41b5bea24d79a56e03626cf25c313b4e",
+    "semantic_hash": ""
+  },
+  "src/olympus/webauthn/__init__.py": {
+    "mtime": 1785636873.4286308,
+    "ast_hash": "73078aaf93cc82a975a972c9810c16da",
+    "semantic_hash": ""
+  },
+  "src/olympus/webauthn/backend.py": {
+    "mtime": 1785636873.4286308,
+    "ast_hash": "afcda4cb0a5c82ce6cd53d360f80eac4",
+    "semantic_hash": ""
+  },
+  "src/olympus/webauthn/service.py": {
+    "mtime": 1785636873.4286308,
+    "ast_hash": "3451d14f69cc7a549dd4a3e572de58de",
+    "semantic_hash": ""
+  },
+  "src/olympus/workers/__init__.py": {
+    "mtime": 1785636873.4286308,
+    "ast_hash": "83d9aa6ff505e9318b42938a9ee8dfaa",
+    "semantic_hash": ""
+  },
+  "src/olympus/workers/admission.py": {
+    "mtime": 1785636873.4286308,
+    "ast_hash": "786e09e5e7381b041de57896165459ee",
+    "semantic_hash": ""
+  },
+  "src/olympus/workers/local_autonomy.py": {
+    "mtime": 1785636873.4286308,
+    "ast_hash": "ec89318eb0113f6f4b99f6b2206bafd4",
+    "semantic_hash": ""
+  },
+  "src/olympus/workflows/__init__.py": {
+    "mtime": 1785312297.291233,
+    "ast_hash": "52db003bcbc0b53c46cc946bf2768ce2",
+    "semantic_hash": ""
+  },
+  "src/olympus/workflows/command.py": {
+    "mtime": 1785636873.4296308,
+    "ast_hash": "8afe6cc7926f1eed97c997aeb642f1bf",
+    "semantic_hash": ""
+  },
+  "src/olympus/workflows/node_job.py": {
+    "mtime": 1785626547.9844964,
+    "ast_hash": "15231d771173b667c62947576a0edb9d",
+    "semantic_hash": ""
+  },
+  "tests/audit_export/test_audit_export.py": {
+    "mtime": 1785637427.4728217,
+    "ast_hash": "c54fdab3b5dfc9dd74f05c08db51f863",
+    "semantic_hash": ""
+  },
+  "tests/audit_export/test_signing.py": {
+    "mtime": 1785636873.4296308,
+    "ast_hash": "4cd362e7adf5f15bd5fe330873d4c17d",
+    "semantic_hash": ""
+  },
+  "tests/authentication/__init__.py": {
+    "mtime": 1785636873.4296308,
+    "ast_hash": "c1e690799c74b6e0182e92c137788e1a",
+    "semantic_hash": ""
+  },
+  "tests/authentication/helpers.py": {
+    "mtime": 1785636873.4296308,
+    "ast_hash": "1f42479e34fa836dcbccfc946cde7c5f",
+    "semantic_hash": ""
+  },
+  "tests/authentication/test_recovery.py": {
+    "mtime": 1785636873.4296308,
+    "ast_hash": "5df82784cd77e47975dd95801945020e",
+    "semantic_hash": ""
+  },
+  "tests/authentication/test_service.py": {
+    "mtime": 1785636873.4296308,
+    "ast_hash": "71c923879c188f18e29a103d4ebf4bbc",
+    "semantic_hash": ""
+  },
+  "tests/authority/test_latch.py": {
+    "mtime": 1785636873.430631,
+    "ast_hash": "428decd52dad9455b1856cb104d9b4f5",
+    "semantic_hash": ""
+  },
+  "tests/authority/test_models.py": {
+    "mtime": 1785636873.430631,
+    "ast_hash": "623cd2b08f91bbc6a0010759fc5d7c8b",
+    "semantic_hash": ""
+  },
+  "tests/authority/test_node_approvals.py": {
+    "mtime": 1785652521.1772351,
+    "ast_hash": "3efea8d4fabd6dea5a723b6ab5aafb14",
+    "semantic_hash": ""
+  },
+  "tests/authority/test_repository_contract.py": {
+    "mtime": 1785637606.6732302,
+    "ast_hash": "5472b8e67fe25eb2eafc1872ea68f94b",
+    "semantic_hash": ""
+  },
+  "tests/authority/test_sqlalchemy_repository.py": {
+    "mtime": 1785636873.430631,
+    "ast_hash": "bfafc0e28b124e1c7d1c96f3901a4b05",
+    "semantic_hash": ""
+  },
+  "tests/broker/test_root_broker.py": {
+    "mtime": 1785636873.430631,
+    "ast_hash": "070067342ffc2830af0f5b61c0aa431e",
+    "semantic_hash": ""
+  },
+  "tests/capacity/test_burst.py": {
+    "mtime": 1785636873.430631,
+    "ast_hash": "5af47918e3d0ad0227077461134aef94",
+    "semantic_hash": ""
+  },
+  "tests/capacity/test_vps4_capacity.py": {
+    "mtime": 1785312297.291233,
+    "ast_hash": "52f98e5d0fa56fa684dd8fdb40fbfc1a",
+    "semantic_hash": ""
+  },
+  "tests/contracts/test_commands.py": {
+    "mtime": 1785636873.430631,
+    "ast_hash": "9ad3c83be230c38bfaf1de2ccdae70ee",
+    "semantic_hash": ""
+  },
+  "tests/control/test_control_models.py": {
+    "mtime": 1785636873.430631,
+    "ast_hash": "a4c82dfa29088ed6e816b74e130f98e5",
+    "semantic_hash": ""
+  },
+  "tests/control/test_workflow.py": {
+    "mtime": 1785636873.430631,
+    "ast_hash": "b0afcc47b9dc6360386097026a507ebe",
+    "semantic_hash": ""
+  },
+  "tests/discord/test_contracts.py": {
+    "mtime": 1785636873.4316308,
+    "ast_hash": "3373dd16ccd3ec1c379771767386a966",
+    "semantic_hash": ""
+  },
+  "tests/discord/test_service.py": {
+    "mtime": 1785636873.4326308,
+    "ast_hash": "6e1d59a440f68d4965c1358a8137856f",
+    "semantic_hash": ""
+  },
+  "tests/discord/test_verify.py": {
+    "mtime": 1785636873.4326308,
+    "ast_hash": "a98381b7daa7d7070f7a60aa0fbde71f",
+    "semantic_hash": ""
+  },
+  "tests/effects/test_ledger.py": {
+    "mtime": 1785636873.4326308,
+    "ast_hash": "d45eb2101880078890129ce391970fb4",
+    "semantic_hash": ""
+  },
+  "tests/gateway/test_app.py": {
+    "mtime": 1785312297.292233,
+    "ast_hash": "669560436fba8e01c0223028ce926cad",
+    "semantic_hash": ""
+  },
+  "tests/gateway/test_nodes_api.py": {
+    "mtime": 1785653221.217595,
+    "ast_hash": "d2bbea9d9231403502533ee714383d78",
+    "semantic_hash": ""
+  },
+  "tests/gateway/test_production_app.py": {
+    "mtime": 1785648375.5077634,
+    "ast_hash": "2bbb54635d813e19e40e603f11977a73",
+    "semantic_hash": ""
+  },
+  "tests/gateway/test_production_settings.py": {
+    "mtime": 1785652950.3098361,
+    "ast_hash": "5ddeb2a30fe47f5bd1ed70169a67a059",
+    "semantic_hash": ""
+  },
+  "tests/governance/test_authorization.py": {
+    "mtime": 1785636873.4326308,
+    "ast_hash": "3297d61bcc4698a61e0b3692c5b4f1d3",
+    "semantic_hash": ""
+  },
+  "tests/governance/test_policy.py": {
+    "mtime": 1785636873.4326308,
+    "ast_hash": "4b56cae4dae3031ee382c6d983a43187",
+    "semantic_hash": ""
+  },
+  "tests/graphs/test_bounded_dag.py": {
+    "mtime": 1785636873.4326308,
+    "ast_hash": "3fd82cb3d14c9104b3a89a6f88146cc7",
+    "semantic_hash": ""
+  },
+  "tests/graphs/test_compiler.py": {
+    "mtime": 1785312297.293233,
+    "ast_hash": "189e3280dcabe362ca0d257558754fc8",
+    "semantic_hash": ""
+  },
+  "tests/integration/test_authority_recovery.py": {
+    "mtime": 1785636873.4336307,
+    "ast_hash": "642d2954baac7107f9dbdee9342f7992",
+    "semantic_hash": ""
+  },
+  "tests/integration/test_capability_reachability.py": {
+    "mtime": 1785653426.7922058,
+    "ast_hash": "0802493f0a0d20a2ff4351d879fd55be",
+    "semantic_hash": ""
+  },
+  "tests/integration/test_mvp_graph.py": {
+    "mtime": 1785636873.4336307,
+    "ast_hash": "2c572ac98188846c86897a577c01392e",
+    "semantic_hash": ""
+  },
+  "tests/integration/test_node_mesh_end_to_end.py": {
+    "mtime": 1785626568.1289916,
+    "ast_hash": "e760f3cc0ccf5dc8f3c04ebbfa287eb3",
+    "semantic_hash": ""
+  },
+  "tests/integrations/test_shadow_mode.py": {
+    "mtime": 1785636873.4336307,
+    "ast_hash": "9ff08dada3efe40fcf4ed48f1e62bfc5",
+    "semantic_hash": ""
+  },
+  "tests/node_agent/test_agent_runtime.py": {
+    "mtime": 1785626651.1799302,
+    "ast_hash": "7b1288ceb1c09cc0414029b130293762",
+    "semantic_hash": ""
+  },
+  "tests/node_agent/test_serve_loop.py": {
+    "mtime": 1785627722.7757406,
+    "ast_hash": "050d9cb57a09dd88db81b679bfa02a8a",
+    "semantic_hash": ""
+  },
+  "tests/nodes/test_file_read.py": {
+    "mtime": 1785652798.0986433,
+    "ast_hash": "0bf7250b2f2f2224c874d4920e1ec893",
+    "semantic_hash": ""
+  },
+  "tests/nodes/test_file_write.py": {
+    "mtime": 1785648723.8346627,
+    "ast_hash": "cb551fabcf81a0ee0eb0641c978b6971",
+    "semantic_hash": ""
+  },
+  "tests/nodes/test_local_node.py": {
+    "mtime": 1785629134.2571166,
+    "ast_hash": "f5572229646ee0b098590ff232062d0a",
+    "semantic_hash": ""
+  },
+  "tests/nodes/test_protocol_primitives.py": {
+    "mtime": 1785653861.8116791,
+    "ast_hash": "60dd70b4370606e3f71da6c226d58447",
+    "semantic_hash": ""
+  },
+  "tests/nodes/test_registry.py": {
+    "mtime": 1785648723.8526623,
+    "ast_hash": "c8ce1b359e7fec14dd78cf00ac35b9fb",
+    "semantic_hash": ""
+  },
+  "tests/nodes/test_scopes.py": {
+    "mtime": 1785639203.18576,
+    "ast_hash": "f1e204d2c7964d37d585e5a1975f7e37",
+    "semantic_hash": ""
+  },
+  "tests/nodes/test_session_dispatch.py": {
+    "mtime": 1785653946.1673467,
+    "ast_hash": "4b583280df3f4cc18f5385fd360c8cc8",
+    "semantic_hash": ""
+  },
+  "tests/operations/__init__.py": {
+    "mtime": 1785654110.2708657,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "tests/operations/test_autonomy.py": {
+    "mtime": 1785636873.4336307,
+    "ast_hash": "d88171ef2a851bbfaa8f3c4eebb8ff28",
+    "semantic_hash": ""
+  },
+  "tests/operations/test_control_plane.py": {
+    "mtime": 1785636873.4336307,
+    "ast_hash": "f3f48efa2cab9b7a024cf9df6bff3097",
+    "semantic_hash": ""
+  },
+  "tests/operations/test_nodes_cli.py": {
+    "mtime": 1785654130.5123172,
+    "ast_hash": "de61044dea762b1abad084e69aa3d3aa",
+    "semantic_hash": ""
+  },
+  "tests/persistence/test_ownership.py": {
+    "mtime": 1785636873.4336307,
+    "ast_hash": "681fb215b9db132e4c0cc960d4f9a616",
+    "semantic_hash": ""
+  },
+  "tests/persistence/test_postgres_store.py": {
+    "mtime": 1785629363.1896133,
+    "ast_hash": "1638b34cda936502c110b4802d117217",
+    "semantic_hash": ""
+  },
+  "tests/persistence/test_schema.py": {
+    "mtime": 1785636873.4336307,
+    "ast_hash": "ac9831e2310166f879832a424a7d4511",
+    "semantic_hash": ""
+  },
+  "tests/runtime/test_entrypoints.py": {
+    "mtime": 1785312297.293233,
+    "ast_hash": "3b937fe687ac72b1e18a28f01f1f0507",
+    "semantic_hash": ""
+  },
+  "tests/security/test_authority_gauntlet.py": {
+    "mtime": 1785636873.4336307,
+    "ast_hash": "bacf433d30b5ca145bbcf9a03bab8559",
+    "semantic_hash": ""
+  },
+  "tests/security/test_no_authority_leaks.py": {
+    "mtime": 1785636873.4336307,
+    "ast_hash": "afe3e600b7fd3ab48519ae45f7c1af5e",
+    "semantic_hash": ""
+  },
+  "tests/test_package.py": {
+    "mtime": 1785312297.293233,
+    "ast_hash": "b49a234f1e8f7171a61355d825c81651",
+    "semantic_hash": ""
+  },
+  "tests/workers/test_admission.py": {
+    "mtime": 1785636873.4346306,
+    "ast_hash": "f0a610faf57bc171b7202b36a8ba787f",
+    "semantic_hash": ""
+  },
+  "tests/workers/test_local_autonomy.py": {
+    "mtime": 1785636873.4346306,
+    "ast_hash": "7f7d0bc93791a2a896c3888b71398b4e",
+    "semantic_hash": ""
+  },
+  "tests/workflows/test_command_workflow.py": {
+    "mtime": 1785312297.293233,
+    "ast_hash": "2c277e20ffd0e1bc2c6fdef402b5ce85",
+    "semantic_hash": ""
+  },
+  "tests/workflows/test_node_job_workflow.py": {
+    "mtime": 1785626713.9743896,
+    "ast_hash": "0b48890fd729dee2c2013f12d113e099",
+    "semantic_hash": ""
+  },
+  ".github/workflows/ci.yml": {
+    "mtime": 1785636873.4206312,
+    "ast_hash": "e9b875a9603e80b3825ddaf7c26f7a25",
+    "semantic_hash": ""
+  },
+  "AGENTS.md": {
+    "mtime": 1785312297.287233,
+    "ast_hash": "35851e2a60efb88c420c2417978dcd0f",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1785636873.4206312,
+    "ast_hash": "6fb65585e8c04cbee6e2ba953898f6b5",
+    "semantic_hash": ""
+  },
+  "build-constraints.txt": {
+    "mtime": 1785312297.287233,
+    "ast_hash": "9de8a4a6158632b82e8df9ff11b560b8",
+    "semantic_hash": ""
+  },
+  "config/capacity/vps4.yaml": {
+    "mtime": 1785312297.287233,
+    "ast_hash": "cb48645976ee0dadc30504f5de901913",
+    "semantic_hash": ""
+  },
+  "deploy/helm/olympus-foundation/Chart.yaml": {
+    "mtime": 1785312297.287233,
+    "ast_hash": "2a886c79e460cc5de61a2e45aece341d",
+    "semantic_hash": ""
+  },
+  "deploy/helm/olympus-foundation/README.md": {
+    "mtime": 1785312297.287233,
+    "ast_hash": "d5966eb38e7ee9481db48bc60eff057b",
+    "semantic_hash": ""
+  },
+  "deploy/helm/olympus-foundation/templates/namespaces.yaml": {
+    "mtime": 1785312297.287233,
+    "ast_hash": "61de9a3f9fa7607d66755b697647c313",
+    "semantic_hash": ""
+  },
+  "deploy/helm/olympus-foundation/templates/priority-classes.yaml": {
+    "mtime": 1785312297.287233,
+    "ast_hash": "cfafb166e255ddb549dc3ad78bfb2534",
+    "semantic_hash": ""
+  },
+  "deploy/helm/olympus-foundation/templates/worker-quota.yaml": {
+    "mtime": 1785312297.288233,
+    "ast_hash": "d55b12e651bec9c6d215b8250f233f64",
+    "semantic_hash": ""
+  },
+  "deploy/helm/olympus-foundation/values.yaml": {
+    "mtime": 1785312297.288233,
+    "ast_hash": "b239c7af8bb89d670756ce497f99a79d",
+    "semantic_hash": ""
+  },
+  "deploy/node/windows/README.md": {
+    "mtime": 1785625232.0667393,
+    "ast_hash": "2934431a31a436412a394aa8b7fd2a04",
+    "semantic_hash": ""
+  },
+  "deploy/node/windows/requirements-node.txt": {
+    "mtime": 1785623448.6329648,
+    "ast_hash": "4a5b76edb989b3ecc66a500542a845a1",
+    "semantic_hash": ""
+  },
+  "deploy/systemd/README.md": {
+    "mtime": 1785637750.8935728,
+    "ast_hash": "20e1d6f7afc81f391bfde684e1f9d0cd",
+    "semantic_hash": ""
+  },
+  "docs/implementation/mvp-slices-2-13.md": {
+    "mtime": 1785636873.4206312,
+    "ast_hash": "061ca13f22ac7f98a06a1ba66d1b2052",
+    "semantic_hash": ""
+  },
+  "docs/implementation/node-mesh-foundation-acceptance.md": {
+    "mtime": 1785627862.5855398,
+    "ast_hash": "e9f492dc14f81dc4f2d7b4505807d630",
+    "semantic_hash": ""
+  },
+  "docs/implementation/phase-0-foundation-acceptance.md": {
+    "mtime": 1785315089.2370505,
+    "ast_hash": "85403c9ea268c1ba328868b182008f69",
+    "semantic_hash": ""
+  },
+  "docs/operations/audit-export-signing.md": {
+    "mtime": 1785638189.2515864,
+    "ast_hash": "8a1d954d9496f7e2e5baf4df6fa439bc",
+    "semantic_hash": ""
+  },
+  "docs/operations/discord-credential-recovery.md": {
+    "mtime": 1785636873.421631,
+    "ast_hash": "28e5da6900fa5b269693ef4254f043b2",
+    "semantic_hash": ""
+  },
+  "docs/operations/node-file-read.md": {
+    "mtime": 1785651126.7886295,
+    "ast_hash": "62133655a929cd3c1d9fcc04872527d0",
+    "semantic_hash": ""
+  },
+  "docs/operations/node-mesh-security-model.md": {
+    "mtime": 1785654243.672266,
+    "ast_hash": "7bb4e0e1c9dae60387e515098ee789c7",
+    "semantic_hash": ""
+  },
+  "docs/operations/node-mesh.md": {
+    "mtime": 1785629465.328175,
+    "ast_hash": "da15959bc371a2324b729660841d3083",
+    "semantic_hash": ""
+  },
+  "docs/operations/production-gateway.md": {
+    "mtime": 1785637731.0330749,
+    "ast_hash": "86806653a80388f1ba849bfd4e6db02c",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-07-28-olympus-foundation-walking-skeleton.md": {
+    "mtime": 1785312297.2902331,
+    "ast_hash": "a057150770a8958e8d9aa8eb71d785b2",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-07-29-trusted-ingress-authority-control.md": {
+    "mtime": 1785316048.9568596,
+    "ast_hash": "49961f8f35894d752d1867be712f7689",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-07-29-vps-development-migration.md": {
+    "mtime": 1785312682.6309054,
+    "ast_hash": "950a88d31ded8988ca43a9cb0a47a41b",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-07-28-agentic-vps-god-agent-design.md": {
+    "mtime": 1785625177.6288939,
+    "ast_hash": "6d2d12d5d56e0ad4d6d70e08b7b12129",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-07-29-olympus-implementation-roadmap-design.md": {
+    "mtime": 1785625177.665893,
+    "ast_hash": "ea739cd5963ce9f8523a1ffc05ba996d",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-07-29-trusted-ingress-authority-control-design.md": {
+    "mtime": 1785315882.10714,
+    "ast_hash": "cd16414966f6a1fd5f92f610abd675aa",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-07-29-vps-development-migration-design.md": {
+    "mtime": 1785312603.1085217,
+    "ast_hash": "bd12fa8549438641a37ee77b72316eb6",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-08-01-distributed-execution-node-mesh-design.md": {
+    "mtime": 1785629465.329175,
+    "ast_hash": "39d811eb7cac26eda5790f99d9f8b326",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-08-01-node-mesh-persistence-design.md": {
+    "mtime": 1785628721.6032605,
+    "ast_hash": "31c76971321897490d7a52f1d9b9de47",
+    "semantic_hash": ""
+  }
+}

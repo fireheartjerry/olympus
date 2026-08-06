@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-08-02T20:59:29.992199+00:00",
+  "nodes": {
+    "src_olympus_authority_repository_credential": {
+      "code_fingerprint": "4184cde562ec5b6199128ce5fa145a31fbb3b744950895df2743057df47ba5d0",
+      "label": "Credential",
+      "last": "2026-08-02T20:59:29.814724+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-02T20:59:29.814724+00:00",
+          "outcome": "useful",
+          "q": "How does authentication work?"
+        }
+      ],
+      "score": 0.999999953,
+      "source_file": "src/olympus/authority/repository.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "src_olympus_webauthn_service_webauthnauthorityservice": {
+      "code_fingerprint": "79ea458b0bb65178e8a308d16c0724bda0d75c8d9271e76f10abea4ec59d56a4",
+      "label": "WebAuthnAuthorityService",
+      "last": "2026-08-02T20:59:29.814724+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-02T20:59:29.814724+00:00",
+          "outcome": "useful",
+          "q": "How does authentication work?"
+        }
+      ],
+      "score": 0.999999953,
+      "source_file": "src/olympus/webauthn/service.py",
+      "status": "tentative",
+      "uses": 1
+    }
+  },
+  "version": 1
+}
