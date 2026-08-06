@@ -144,7 +144,7 @@ async def run() -> None:
     node connections. It is one Temporal worker on its own task queue, not a
     second orchestrator: every node job is still a Temporal workflow.
     """
-    settings = GatewaySettings()  # type: ignore[call-arg]  # required values come from environment
+    settings = GatewaySettings()
     client = await Client.connect(settings.temporal_address)
     store, store_description = await open_node_mesh_store(settings)
     _log.info("node-mesh canonical store: %s", store_description)

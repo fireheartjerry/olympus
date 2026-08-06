@@ -95,7 +95,7 @@ async def run_once(settings: ProductionGatewaySettings | None = None) -> int:
     is whether the off-host copy is still trustworthy, and the answer can change
     without this process having done anything.
     """
-    settings = settings or ProductionGatewaySettings()  # type: ignore[call-arg]
+    settings = settings or ProductionGatewaySettings()
     if settings.audit_export_bucket is None or settings.audit_export_kms_key_id is None:
         raise AuditExportNotConfigured(
             "no audit export bucket or signing key is configured for this gateway"
