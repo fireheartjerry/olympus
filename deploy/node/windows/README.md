@@ -10,8 +10,9 @@ generated on the machine itself and never leaves it.
 
 - Windows 10/11, PowerShell 5.1+.
 - [Python 3.13](https://www.python.org/downloads/) installed and either on
-  `PATH` (as `py -3.13` or `python3.13`) or passed via `-PythonExe`. The
-  installer will not install Python for you.
+  `PATH` (as `py -3.13` or `python3.13`), managed by `uv`, or passed via
+  `-PythonExe`. The installer validates each executable and can use
+  `uv python find --system 3.13`; it will not install Python for you.
 - The machine has joined tailnet `tail70f263.ts.net` (Tailscale) and can
   resolve/reach `vps-41e741fc.tail70f263.ts.net`.
 - A single-use enrollment token issued by the control plane operator.

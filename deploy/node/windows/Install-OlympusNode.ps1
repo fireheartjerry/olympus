@@ -147,40 +147,60 @@ function Assert-ElevationIfNeeded {
 function Find-Python313 {
     param([string]$ExplicitPath)
 
-    $candidate = $null
+    $candidates = New-Object System.Collections.Generic.List[string]
+
+    if ($ExplicitPath -and (Test-Path -LiteralPath $ExplicitPath)) {
+        $candidates.Add($ExplicitPath)
+    }
+
     try {
         $pyLauncherOutput = & py -3.13 -c "import sys; print(sys.executable)" 2>$null
         if ($LASTEXITCODE -eq 0 -and $pyLauncherOutput) {
-            $candidate = $pyLauncherOutput.Trim()
+            $candidates.Add($pyLauncherOutput.Trim())
         }
     } catch {
         # py launcher not present; fall through
     }
 
-    if (-not $candidate) {
-        $found = Get-Command python3.13 -ErrorAction SilentlyContinue
-        if ($found) {
-            $candidate = $found.Source
+    $found = Get-Command python3.13 -ErrorAction SilentlyContinue
+    if ($found) {
+        $candidates.Add($found.Source)
+    }
+
+    # uv-managed Python installations are intentionally not always registered
+    # with the Windows py launcher. Resolve the stable interpreter rather than
+    # trusting a PATH shim, which Windows Application Control may block.
+    $uvCommand = Get-Command uv -ErrorAction SilentlyContinue
+    if ($uvCommand) {
+        try {
+            $uvPython = & $uvCommand.Source python find --system 3.13 2>$null
+            if ($LASTEXITCODE -eq 0 -and $uvPython) {
+                $candidates.Add($uvPython.Trim())
+            }
+        } catch {
+            # uv has no matching managed interpreter; continue to the error.
         }
     }
 
-    if (-not $candidate -and $ExplicitPath) {
-        if (Test-Path -LiteralPath $ExplicitPath) {
-            $candidate = $ExplicitPath
+    $seen = @{}
+    foreach ($candidate in $candidates) {
+        if (-not $candidate -or $seen.ContainsKey($candidate)) {
+            continue
+        }
+        $seen[$candidate] = $true
+        try {
+            $versionOutput = & $candidate -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $versionOutput.Trim() -eq '3.13') {
+                Write-Status ok "Using Python 3.13 at $candidate"
+                return $candidate
+            }
+        } catch {
+            # A PATH shim can exist but be blocked by application-control policy.
+            continue
         }
     }
 
-    if (-not $candidate) {
-        throw "Could not locate Python 3.13. Install it from https://www.python.org/downloads/ (or via 'winget install Python.Python.3.13'), then re-run with -PythonExe pointing at python.exe if it is not on PATH. This script will not install Python for you."
-    }
-
-    $versionOutput = & $candidate -c "import sys; print('%d.%d' % sys.version_info[:2])"
-    if ($versionOutput.Trim() -ne '3.13') {
-        throw "Python at '$candidate' reports version $($versionOutput.Trim()), expected 3.13."
-    }
-
-    Write-Status ok "Using Python 3.13 at $candidate"
-    return $candidate
+    throw "Could not execute Python 3.13. Install it from https://www.python.org/downloads/ (or 'uv python install 3.13'), then re-run with -PythonExe pointing at the real python.exe rather than a blocked shim. This script will not install Python for you."
 }
 
 function New-InstallDirectories {

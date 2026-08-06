@@ -8,6 +8,49 @@ from olympus.gateway.settings import GatewaySettings
 TEST_COMMAND_TOKEN = "test-token-with-at-least-32-bytes"
 
 
+def node_settings(**overrides: object) -> GatewaySettings:
+    values: dict[str, object] = {
+        "environment": "test",
+        "dev_command_token": TEST_COMMAND_TOKEN,
+        "node_mesh_enabled": True,
+        "node_attach_control_plane_host": False,
+    }
+    values.update(overrides)
+    return GatewaySettings(_env_file=None, **values)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_node_edge_refuses_implicit_volatile_state() -> None:
+    from olympus.runtime.node_edge import open_node_mesh_store
+
+    with pytest.raises(RuntimeError, match="requires FIRE_DATABASE_URL"):
+        await open_node_mesh_store(node_settings())
+
+
+def test_node_edge_refuses_implicit_ephemeral_signing_key() -> None:
+    from olympus.runtime.node_edge import resolve_control_plane_keys
+
+    with pytest.raises(RuntimeError, match="requires FIRE_NODE_CONTROL_PLANE_PRIVATE_KEY"):
+        resolve_control_plane_keys(node_settings())
+
+
+@pytest.mark.asyncio
+async def test_disposable_harness_must_explicitly_allow_both_fallbacks() -> None:
+    from olympus.runtime.node_edge import open_node_mesh_store, resolve_control_plane_keys
+
+    settings = node_settings(
+        node_allow_volatile_state=True,
+        node_allow_ephemeral_control_plane_key=True,
+    )
+    store, description = await open_node_mesh_store(settings)
+    private_key, public_key = resolve_control_plane_keys(settings)
+
+    assert store is None
+    assert description.startswith("in-process")
+    assert private_key
+    assert public_key
+
+
 @pytest.mark.asyncio
 async def test_gateway_runtime_wires_temporal_starter_and_loopback_uvicorn(
     monkeypatch: pytest.MonkeyPatch,

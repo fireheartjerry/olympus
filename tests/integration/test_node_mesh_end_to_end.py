@@ -56,6 +56,8 @@ async def running_control_plane() -> AsyncIterator[Harness]:
         dev_command_token=TEST_COMMAND_TOKEN,  # type: ignore[arg-type]
         http_port=port,
         node_mesh_enabled=True,
+        node_allow_volatile_state=True,
+        node_allow_ephemeral_control_plane_key=True,
         node_heartbeat_interval_seconds=2,
         node_heartbeat_expiry_seconds=30,
     )

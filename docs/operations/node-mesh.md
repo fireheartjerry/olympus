@@ -131,6 +131,8 @@ Relevant `.env` variables (`GatewaySettings`, env prefix `OLYMPUS_`):
 | `OLYMPUS_NODE_CONTROL_PLANE_KEY_ID` | Identifier the control plane presents for its signing key. Defaults `olympus-control-plane-v1`. |
 | `OLYMPUS_NODE_CONTROL_PLANE_PRIVATE_KEY` | The control plane's Ed25519 private key, base64url-encoded. |
 | `OLYMPUS_NODE_MESH_ENABLED` | Must be `true` to run the mesh runtime. Defaults to `false`. |
+| `OLYMPUS_NODE_ALLOW_VOLATILE_STATE` | Disposable test/demo escape hatch for the in-process store. Defaults to `false`; never enable on a deployed edge. |
+| `OLYMPUS_NODE_ALLOW_EPHEMERAL_CONTROL_PLANE_KEY` | Disposable test/demo escape hatch for a restart-unstable signing key. Defaults to `false`; never enable on a deployed edge. |
 | `OLYMPUS_NODE_ATTACH_CONTROL_PLANE_HOST` | Enroll the VPS itself as an execution node granted only `system.inspect@1`. Defaults to `true`. |
 | `OLYMPUS_NODE_CONTROL_PLANE_HOST_NAME` | Display name for that self node. Defaults to `vps-primary`. |
 
@@ -146,19 +148,21 @@ because that entrypoint exists only to serve the mesh. Run
 a deployment switch, not an authorization control: freezing dispatch, not
 disabling the flag, is the emergency response.
 
-**Signing key.** `resolve_control_plane_keys` in `src/olympus/runtime/
-node_edge.py` reads `OLYMPUS_NODE_CONTROL_PLANE_PRIVATE_KEY`. If it is unset,
-the gateway **generates a fresh ephemeral Ed25519 key pair on every
-process start**. This is explicitly documented in the function's own
-docstring as a development convenience, not a safe default: every node that
+**Durable state and signing key.** The edge refuses to start without
+`OLYMPUS_DATABASE_URL` and `OLYMPUS_NODE_CONTROL_PLANE_PRIVATE_KEY`. Volatile
+state or a generated key now requires a separate explicit test/demo escape
+hatch; logging a dangerous fallback was not a sufficient production gate.
+
+If the ephemeral-key escape hatch is explicitly enabled, the gateway generates
+a fresh Ed25519 key pair on every process start. Every node that
 already enrolled pinned the *previous* control-plane public key during its
 handshake (`AgentIdentity.control_plane_public_key`), and
 `NodeAgent.handshake` verifies the challenge's `server_proof` against that
 pinned key (`verify_payload(..., NodeReason.SERVER_PROOF_INVALID)`). A
 restart with a new ephemeral key means every previously enrolled node fails
 its next handshake with `server-proof-invalid` and cannot reconnect until it
-re-enrolls. **Set `OLYMPUS_NODE_CONTROL_PLANE_PRIVATE_KEY` before enrolling
-any real node.** Generate one with:
+re-enrolls. **Never enable either escape hatch before enrolling a real node.**
+Generate the durable signing key with:
 
 ```bash
 python -c "from olympus.nodes.crypto import generate_node_keypair as g; k = g(); print(k.private_key)"
@@ -172,8 +176,9 @@ VPS `.env`. Treat it as a credential: it is never committed to Git.
 Prerequisites, from `deploy/node/windows/README.md`:
 
 - Windows 10/11, PowerShell 5.1+.
-- Python 3.13 on `PATH` (as `py -3.13` or `python3.13`) or passed via
-  `-PythonExe`. The installer does not install Python.
+- Python 3.13 on `PATH`, managed by `uv`, or passed via `-PythonExe`. The
+  installer validates real executables and skips blocked PATH shims; it does
+  not install Python.
 - The machine has joined tailnet `tail70f263.ts.net` and can reach
   `vps-41e741fc.tail70f263.ts.net`. `jerry-windows` is already on this
   tailnet at `100.69.154.76`.

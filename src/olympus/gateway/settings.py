@@ -26,15 +26,17 @@ class GatewaySettings(BaseSettings):
     node_enrollment_ttl_seconds: int = Field(default=900, ge=60, le=3600)
     node_control_plane_key_id: str = "olympus-control-plane-v1"
     node_control_plane_private_key: SecretStr | None = None
+    # Volatile state and ephemeral signing keys exist only for tests and the
+    # offline demo. A real edge must opt into neither accidentally.
+    node_allow_volatile_state: bool = False
+    node_allow_ephemeral_control_plane_key: bool = False
     # The control-plane host is itself an execution node, enrolled through the
     # same flow and granted only the bounded read-only inspection capability.
     node_attach_control_plane_host: bool = True
     node_control_plane_host_name: str = "vps-primary"
 
-    # PostgreSQL is the canonical owner of node-mesh state. When this is unset
-    # the mesh falls back to the in-process store, which loses every node,
-    # grant, revocation, freeze, and audit event on restart. The runtime says
-    # which store it chose at startup so that fallback is never silent.
+    # PostgreSQL is the canonical owner of node-mesh state. The in-process
+    # store requires an explicit development/test opt-in above.
     database_url: SecretStr | None = None
 
     def __init__(self, **values: Any) -> None:
