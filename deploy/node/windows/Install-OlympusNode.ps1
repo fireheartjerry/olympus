@@ -89,6 +89,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $TaskName = 'OlympusNodeAgent'
+$RunKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 
 function Write-Status {
     param(
@@ -381,12 +382,38 @@ function Register-AgentTask {
     $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 
     $task = New-ScheduledTask -Action $action -Trigger $triggers -Settings $settings -Principal $principal
-    Register-ScheduledTask -TaskName $TaskName -InputObject $task -Force | Out-Null
-    Write-Status change "Registered/updated scheduled task '$TaskName' (AtStartup + AtLogon, RunLevel Limited)."
+    try {
+        Register-ScheduledTask -TaskName $TaskName -InputObject $task -Force -ErrorAction Stop | Out-Null
+        Remove-ItemProperty -Path $RunKeyPath -Name $TaskName -ErrorAction SilentlyContinue
+        Write-Status change "Registered/updated scheduled task '$TaskName' (AtStartup + AtLogon, RunLevel Limited)."
+        return $true
+    } catch {
+        # Some managed Windows installations deny Task Scheduler registration
+        # even for a current-user, RunLevel Limited task. HKCU Run preserves the
+        # same non-admin, outbound-only boundary and reliably starts at logon.
+        New-Item -Path $RunKeyPath -Force | Out-Null
+        $runCommand = 'cmd.exe /c start "" /min "' + $WrapperPath + '"'
+        Set-ItemProperty -Path $RunKeyPath -Name $TaskName -Value $runCommand -ErrorAction Stop
+        Write-Status change "Task Scheduler denied registration; installed current-user logon autostart fallback."
+        return $false
+    }
 }
 
 function Start-AgentTask {
-    Start-ScheduledTask -TaskName $TaskName
+    param(
+        [string]$WrapperPath,
+        [string]$Root,
+        [bool]$ScheduledTask
+    )
+
+    if (-not $ScheduledTask) {
+        Start-Process -FilePath $WrapperPath -WorkingDirectory $Root -WindowStyle Hidden
+        Start-Sleep -Seconds 2
+        Write-Status ok "Started the current-user node agent through the logon-autostart fallback."
+        return
+    }
+
+    Start-ScheduledTask -TaskName $TaskName -ErrorAction Stop
     Start-Sleep -Seconds 2
     $info = Get-ScheduledTask -TaskName $TaskName | Get-ScheduledTaskInfo
     $task = Get-ScheduledTask -TaskName $TaskName
@@ -407,6 +434,10 @@ function Invoke-UninstallFlow {
         Write-Status change "Stopped and unregistered scheduled task '$TaskName'."
     } else {
         Write-Status skip "Scheduled task '$TaskName' was not registered."
+    }
+    if (Get-ItemProperty -Path $RunKeyPath -Name $TaskName -ErrorAction SilentlyContinue) {
+        Remove-ItemProperty -Path $RunKeyPath -Name $TaskName -ErrorAction Stop
+        Write-Status change "Removed current-user logon autostart fallback '$TaskName'."
     }
 
     if ($ForceRemove) {
@@ -450,8 +481,8 @@ try {
     }
 
     $wrapperPath = New-Wrapper -Root $InstallRoot -VenvPython $venvPython -ConfigPath $configPath
-    Register-AgentTask -WrapperPath $wrapperPath -Root $InstallRoot
-    Start-AgentTask
+    $registeredTask = Register-AgentTask -WrapperPath $wrapperPath -Root $InstallRoot
+    Start-AgentTask -WrapperPath $wrapperPath -Root $InstallRoot -ScheduledTask $registeredTask
 
     Write-Host ""
     Write-Status ok "Olympus node agent install complete."

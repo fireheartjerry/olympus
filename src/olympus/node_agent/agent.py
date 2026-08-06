@@ -2,12 +2,16 @@ import asyncio
 import base64
 import contextlib
 import hashlib
+import json
+import os
 import platform
+import stat
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 
 from olympus.node_agent.capabilities import (
     CapabilityArtifact,
@@ -46,6 +50,8 @@ from olympus.nodes.redaction import bound_output, redact_and_bound
 AGENT_VERSION = "0.1.0"
 LEDGER_CAPACITY = 64
 _OUTBOX_CAPACITY = 256
+_LEDGER_VERSION = 1
+_OWNER_ONLY_MODE = stat.S_IRUSR | stat.S_IWUSR
 
 
 @dataclass(frozen=True)
@@ -83,9 +89,18 @@ class _ResultLedger:
     recorded outcome instead of running the work a second time.
     """
 
-    def __init__(self, capacity: int = LEDGER_CAPACITY) -> None:
+    def __init__(
+        self,
+        capacity: int = LEDGER_CAPACITY,
+        path: Path | None = None,
+        node_id: str = "",
+    ) -> None:
         self._capacity = capacity
+        self._path = path
+        self._node_id = node_id
         self._entries: OrderedDict[str, JobResultFrame] = OrderedDict()
+        if path is not None and path.exists():
+            self._load()
 
     def get(self, dedupe_key: str) -> JobResultFrame | None:
         entry = self._entries.get(dedupe_key)
@@ -98,9 +113,59 @@ class _ResultLedger:
         self._entries.move_to_end(dedupe_key)
         while len(self._entries) > self._capacity:
             self._entries.popitem(last=False)
+        self._persist()
 
     def keys(self) -> tuple[str, ...]:
         return tuple(self._entries.keys())
+
+    def _load(self) -> None:
+        if self._path is None:
+            raise RuntimeError("persistent ledger path is unavailable")
+        try:
+            raw = json.loads(self._path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict) or set(raw) != {"version", "node_id", "entries"}:
+                raise ValueError("unexpected ledger shape")
+            if raw["version"] != _LEDGER_VERSION or not isinstance(raw["entries"], list):
+                raise ValueError("unsupported ledger version")
+            if not isinstance(raw["node_id"], str):
+                raise ValueError("invalid ledger node identity")
+            if raw["node_id"] != self._node_id:
+                # A forced re-enrollment creates a new identity. Outcomes from
+                # the revoked identity must never authorize replay by the new
+                # one, even when both use the same installation directory.
+                self._persist()
+                return
+            for item in raw["entries"]:
+                if not isinstance(item, dict) or set(item) != {"dedupe_key", "result"}:
+                    raise ValueError("unexpected ledger entry")
+                dedupe_key = item["dedupe_key"]
+                frame = JobResultFrame.model_validate(item["result"])
+                if not isinstance(dedupe_key, str) or dedupe_key != frame.dedupe_key:
+                    raise ValueError("ledger key does not match its result")
+                if dedupe_key in self._entries:
+                    raise ValueError("duplicate ledger key")
+                self._entries[dedupe_key] = frame
+            while len(self._entries) > self._capacity:
+                self._entries.popitem(last=False)
+        except (OSError, json.JSONDecodeError, ValueError, TypeError) as exc:
+            raise RuntimeError("node result ledger is unreadable; refusing unsafe replay") from exc
+
+    def _persist(self) -> None:
+        if self._path is None:
+            return
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self._path.with_suffix(f"{self._path.suffix}.tmp")
+        payload = {
+            "version": _LEDGER_VERSION,
+            "node_id": self._node_id,
+            "entries": [
+                {"dedupe_key": key, "result": frame.model_dump(mode="json")}
+                for key, frame in self._entries.items()
+            ],
+        }
+        temporary.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        os.chmod(temporary, _OWNER_ONLY_MODE)
+        temporary.replace(self._path)
 
 
 class NodeAgent:
@@ -120,6 +185,7 @@ class NodeAgent:
         serves: Sequence[str] = (),
         architecture: str | None = None,
         ledger_capacity: int = LEDGER_CAPACITY,
+        ledger_path: Path | None = None,
     ) -> None:
         self.identity = identity
         self._providers: dict[str, CapabilityProvider] = {}
@@ -131,7 +197,7 @@ class NodeAgent:
         self._serves: tuple[str, ...] = tuple(serves)
         self.node_platform = node_platform or platform.system().lower()
         self.architecture = architecture or platform.machine() or "unknown"
-        self._ledger = _ResultLedger(ledger_capacity)
+        self._ledger = _ResultLedger(ledger_capacity, ledger_path, identity.node_id)
         self._running: dict[str, _RunningJob] = {}
         self._jobs_by_id: dict[str, str] = {}
         self._outbox: asyncio.Queue[str | None] = asyncio.Queue(maxsize=_OUTBOX_CAPACITY)

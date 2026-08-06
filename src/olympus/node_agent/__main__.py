@@ -137,6 +137,7 @@ async def _serve(config: NodeAgentConfig, *, state_directory: Path, once: bool) 
         serves=(FILE_READ.name, FILE_LIST.name, FILE_WRITE.name),
         node_platform=_normalized_platform(),
         architecture=platform.machine() or "unknown",
+        ledger_path=state_directory / "result-ledger.json",
     )
     backoff = MIN_BACKOFF_SECONDS
     while True:
