@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from olympus.authority.latch import CanonicalRecoveryProof
 from olympus.authority.models import RecoveryPayload
 from olympus.authority.repository import AuthorityLease
+from olympus.gateway.auth import OperatorGrant
 from olympus.gateway.production import create_production_app
 from olympus.webauthn.service import (
     AuthenticationAnomaly,
@@ -177,6 +178,39 @@ def test_lease_verification_returns_no_server_side_lease_identifier() -> None:
         "authority_epoch": 2,
         "expires_at": "2026-07-30T00:00:00+00:00",
     }
+
+
+def test_node_edge_receives_a_signed_operator_grant_not_the_server_lease_id() -> None:
+    app = create_production_app(
+        webauthn=FakeWebAuthn(),
+        discord=FakeDiscord(),
+        discord_public_key=bytes(32),
+        webauthn_origin=ORIGIN,
+        webauthn_host="olympus.tail-example.ts.net",
+        bootstrap_enabled=True,
+        now=lambda: NOW,
+        ready=lambda: True,
+        operator_grant_issuer=lambda lease: OperatorGrant(
+            token="signed-opaque-grant",  # noqa: S106 - inert test fixture
+            grant_id="grant-fingerprint",
+            commander_id=lease.commander_id,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/v1/webauthn/lease/verify",
+        headers=webauthn_headers(),
+        json={
+            "challenge_id": "challenge-lease",
+            "credential": {"rawId": "Y3JlZGVudGlhbC0x"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["operator_token"] == "signed-opaque-grant"
+    assert response.json()["operator_grant_id"] == "grant-fingerprint"
+    assert "lease_id" not in response.json()
+    assert "secret-lease-id" not in response.text
 
 
 def test_rejects_oversized_request_before_parsing() -> None:

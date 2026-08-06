@@ -154,6 +154,8 @@ class NodeDispatchService:
                     "dedupe_key": request.dedupe_key,
                     "attempt": request.attempt,
                     "authority_lease_id": request.authority.authority_lease_id,
+                    "variable_cost_usd": str(descriptor.variable_cost_usd),
+                    "cost_basis": "catalog-declared",
                 },
             )
         )
@@ -216,6 +218,8 @@ class NodeDispatchService:
                     "replayed": outcome.replayed,
                     "output_truncated": outcome.output_truncated,
                     "trust_label": outcome.trust_label.value,
+                    "variable_cost_usd": str(descriptor.variable_cost_usd),
+                    "cost_basis": "catalog-declared",
                 },
             )
         )

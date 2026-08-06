@@ -60,12 +60,12 @@ code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.85em
     <h2>Operator credential</h2>
     <p class="meta">Held in this tab's session storage only. It is never stored on the server
       and never written to disk.</p>
-    <label for="token">Bearer credential</label>
+    <label for="token">Signed operator token</label>
     <input id="token" type="password" autocomplete="off" spellcheck="false">
     <label for="commander">Commander</label>
-    <input id="commander" value="local-jerry" autocomplete="off" spellcheck="false">
-    <label for="lease">Authority lease</label>
-    <input id="lease" value="development-lease" autocomplete="off" spellcheck="false">
+    <input id="commander" autocomplete="off" spellcheck="false">
+    <label for="lease">Operator grant ID</label>
+    <input id="lease" autocomplete="off" spellcheck="false">
     <div class="actions"><button class="primary" id="connect" type="button">Connect</button></div>
   </section>
 

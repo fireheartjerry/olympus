@@ -1,0 +1,14 @@
+[Unit]
+Description=Back up Fire Temporal PostgreSQL state
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/olympus
+ExecStart=/home/ubuntu/olympus/scripts/temporal-backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=default.target

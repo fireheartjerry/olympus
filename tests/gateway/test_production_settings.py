@@ -222,3 +222,22 @@ def test_the_node_mesh_chain_is_exported_separately_from_the_authority_chain() -
 def test_a_deployment_without_a_node_mesh_exports_no_node_chain() -> None:
     # An absent chain is not a broken one.
     assert valid_settings().audit_export_node_database_url is None
+
+
+def test_production_node_mesh_requires_durable_state_and_persistent_signing_key() -> None:
+    with pytest.raises(ValidationError):
+        valid_settings(node_mesh_enabled=True)
+    with pytest.raises(ValidationError):
+        valid_settings(
+            node_mesh_enabled=True,
+            node_database_url=SecretStr("postgresql://olympus:test@db/olympus"),
+        )
+
+    settings = valid_settings(
+        node_mesh_enabled=True,
+        node_database_url=SecretStr("postgresql://olympus:test@db/olympus"),
+        node_control_plane_private_key=SecretStr("persistent-ed25519-key"),
+    )
+
+    assert settings.node_mesh_enabled is True
+    assert settings.node_attach_control_plane_host is False

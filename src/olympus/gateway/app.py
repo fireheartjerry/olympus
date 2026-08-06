@@ -6,7 +6,11 @@ from fastapi import FastAPI, Header, HTTPException, status
 from temporalio.client import Client
 
 from olympus.contracts.commands import CommandAccepted, CommandEnvelope, CommandRequest
-from olympus.gateway.auth import matches_development_token, require_single_authority_header
+from olympus.gateway.auth import (
+    DevelopmentOperatorAuthorizer,
+    matches_development_token,
+    require_single_authority_header,
+)
 from olympus.gateway.nodes_api import NodeMeshRuntime, register_node_routes
 from olympus.gateway.settings import GatewaySettings
 from olympus.workflows.command import COMMAND_WORKFLOW_EXECUTION_TIMEOUT, CommandWorkflow
@@ -36,6 +40,7 @@ def create_app(
     settings: GatewaySettings,
     starter: CommandStarter,
     node_mesh: NodeMeshRuntime | None = None,
+    node_allowed_capabilities: frozenset[str] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Olympus Gateway", version="0.1.0")
 
@@ -81,6 +86,12 @@ def create_app(
         return await starter.start(command)
 
     if node_mesh is not None:
-        register_node_routes(app, settings=settings, runtime=node_mesh)
+        register_node_routes(
+            app,
+            enrollment_ttl_seconds=settings.node_enrollment_ttl_seconds,
+            runtime=node_mesh,
+            authorizer=DevelopmentOperatorAuthorizer(settings),
+            allowed_capabilities=node_allowed_capabilities,
+        )
 
     return app
