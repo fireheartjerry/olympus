@@ -209,8 +209,9 @@ def test_enrollment_redeems_once_and_then_refuses_replay() -> None:
 def test_enrollment_refuses_a_tampered_control_plane_signature() -> None:
     client, _, _ = build_client()
     grant = issue(client)
-    replacement = "A" if grant["enrollment_token"][-1] != "A" else "B"
-    tampered = f"{grant['enrollment_token'][:-1]}{replacement}"
+    prefix, body, signature = grant["enrollment_token"].split(".")
+    replacement = "A" if signature[0] != "A" else "B"
+    tampered = f"{prefix}.{body}.{replacement}{signature[1:]}"
 
     response = enroll(client, tampered, generate_node_keypair().public_key)
 

@@ -36,7 +36,7 @@ for database in temporal temporal_visibility; do
     sh "$database" > "$dump_path"
   [[ -s "$dump_path" ]]
   docker exec -i "$container" pg_restore --list < "$dump_path" > /dev/null
-  sha256sum -- "$dump_path" >> "${partial_dir}/SHA256SUMS"
+  (cd "$partial_dir" && sha256sum -- "${database}.dump") >> "${partial_dir}/SHA256SUMS"
 done
 
 chmod 0600 -- "$partial_dir"/*
