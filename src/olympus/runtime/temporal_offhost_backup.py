@@ -51,9 +51,7 @@ def _aws_clients(settings: ProductionGatewaySettings) -> tuple[Any, Any]:
 
 
 def _backup_root() -> Path:
-    configured = os.getenv("FIRE_POSTGRES_BACKUP_DIR") or os.getenv(
-        "OLYMPUS_POSTGRES_BACKUP_DIR"
-    )
+    configured = os.getenv("FIRE_POSTGRES_BACKUP_DIR") or os.getenv("OLYMPUS_POSTGRES_BACKUP_DIR")
     root = Path(configured) if configured else Path.home() / "olympus-backups"
     resolved = root.resolve()
     home = Path.home().resolve()
