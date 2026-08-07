@@ -115,7 +115,15 @@ Record for every drill:
 | Isolation | recovery host, networkless/tmpfs container, cleanup result |
 | Result | both schema versions, pass/fail, operator, timestamp |
 
-The first production drill is part of this release. Repeat quarterly and after
-any change to PostgreSQL major version, Temporal persistence schema, S3/KMS
-policy, backup format, or restore tooling. The next scheduled drill is
-2026-11-06.
+The first production drill passed on 2026-08-06. Backup
+`temporal-20260806T180025Z` restored directly from immutable object storage onto
+Windows Docker Desktop in 40.299 seconds end to end, with a measured
+125.364-second RPO. Temporal schema `1.19` and visibility schema `1.14` both
+restored and queried successfully; the networkless tmpfs container was removed.
+Overwrite returned `PreconditionFailed`, while deletion and Governance bypass
+returned `AccessDenied`. The machine-readable receipt is committed at
+`docs/operations/evidence/2026-08-06-temporal-offhost-recovery.json`.
+
+Repeat quarterly and after any change to PostgreSQL major version, Temporal
+persistence schema, S3/KMS policy, backup format, or restore tooling. The next
+scheduled drill is 2026-11-06. Production IAM source is under `deploy/aws/`.

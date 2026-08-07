@@ -1,0 +1,105 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SignAuditSegmentStatementsOnly",
+      "Effect": "Allow",
+      "Action": "kms:Sign",
+      "Resource": "arn:aws:kms:us-west-2:892077329800:key/f67d65fc-829e-4ed8-b9a1-e3d9782a3ae2",
+      "Condition": {
+        "StringEquals": {
+          "kms:SigningAlgorithm": "ED25519_SHA_512",
+          "kms:MessageType": "RAW"
+        }
+      }
+    },
+    {
+      "Sid": "AppendAndReadAuditSegments",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": "arn:aws:s3:::olympus-audit-export-892077329800/audit/*"
+    },
+    {
+      "Sid": "WriteEncryptedTemporalBackups",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::olympus-audit-export-892077329800/backups/temporal/*",
+      "Condition": {
+        "StringEquals": {
+          "s3:x-amz-server-side-encryption": "AES256"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactTemporalBackupVersions",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": "arn:aws:s3:::olympus-audit-export-892077329800/backups/temporal/*"
+    },
+    {
+      "Sid": "EnumerateAndConfirmSealing",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:GetBucketObjectLockConfiguration"
+      ],
+      "Resource": "arn:aws:s3:::olympus-audit-export-892077329800"
+    },
+    {
+      "Sid": "ReadRetentionMetadataForProof",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObjectRetention",
+        "s3:GetObjectLegalHold"
+      ],
+      "Resource": "arn:aws:s3:::olympus-audit-export-892077329800/audit/*"
+    },
+    {
+      "Sid": "NeverUnsealWhatWasExported",
+      "Effect": "Deny",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion",
+        "s3:PutObjectRetention",
+        "s3:PutObjectLegalHold",
+        "s3:PutBucketObjectLockConfiguration",
+        "s3:BypassGovernanceRetention",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:PutBucketVersioning"
+      ],
+      "Resource": [
+        "arn:aws:s3:::olympus-audit-export-892077329800",
+        "arn:aws:s3:::olympus-audit-export-892077329800/*"
+      ]
+    },
+    {
+      "Sid": "NeverControlTheSigningKeyItself",
+      "Effect": "Deny",
+      "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:ReEncryptFrom",
+        "kms:ReEncryptTo",
+        "kms:GenerateDataKey",
+        "kms:GenerateDataKeyPair",
+        "kms:CreateGrant",
+        "kms:PutKeyPolicy",
+        "kms:DisableKey",
+        "kms:ScheduleKeyDeletion",
+        "kms:DeleteAlias",
+        "kms:UpdateAlias",
+        "kms:ImportKeyMaterial"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
