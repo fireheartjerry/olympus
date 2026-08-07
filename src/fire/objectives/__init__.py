@@ -1,0 +1,41 @@
+"""Fire facade for :mod:`olympus.objectives` during the compatibility release."""
+
+from olympus.objectives import (
+    AuthorityExpectation,
+    AuthorizedObjective,
+    BudgetEnvelope,
+    EffectClass,
+    EvidenceKind,
+    ExecutionGraph,
+    ExecutionStep,
+    ExecutorClass,
+    NotificationPolicy,
+    ObjectiveAuthorization,
+    ObjectiveContract,
+    ObjectiveDraft,
+    ObjectiveMode,
+    SuccessCriterion,
+    canonical_sha256,
+    compile_objective,
+    seal_authorized_objective,
+)
+
+__all__ = [
+    "AuthorityExpectation",
+    "AuthorizedObjective",
+    "BudgetEnvelope",
+    "EffectClass",
+    "EvidenceKind",
+    "ExecutionGraph",
+    "ExecutionStep",
+    "ExecutorClass",
+    "NotificationPolicy",
+    "ObjectiveAuthorization",
+    "ObjectiveContract",
+    "ObjectiveDraft",
+    "ObjectiveMode",
+    "SuccessCriterion",
+    "canonical_sha256",
+    "compile_objective",
+    "seal_authorized_objective",
+]
