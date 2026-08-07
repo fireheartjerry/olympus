@@ -1,0 +1,50 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AppendAuditSegmentsOnly",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:GetObjectRetention"
+      ],
+      "Resource": "arn:aws:s3:::olympus-audit-export-892077329800/audit/*"
+    },
+    {
+      "Sid": "ReadTemporalBackupRetention",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObjectRetention",
+        "s3:GetObjectLegalHold"
+      ],
+      "Resource": "arn:aws:s3:::olympus-audit-export-892077329800/backups/temporal/*"
+    },
+    {
+      "Sid": "ListOwnPrefix",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketObjectLockConfiguration"
+      ],
+      "Resource": "arn:aws:s3:::olympus-audit-export-892077329800"
+    },
+    {
+      "Sid": "NeverDeleteNeverWeakenRetention",
+      "Effect": "Deny",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion",
+        "s3:PutObjectRetention",
+        "s3:PutObjectLegalHold",
+        "s3:PutBucketObjectLockConfiguration",
+        "s3:PutLifecycleConfiguration",
+        "s3:BypassGovernanceRetention"
+      ],
+      "Resource": [
+        "arn:aws:s3:::olympus-audit-export-892077329800",
+        "arn:aws:s3:::olympus-audit-export-892077329800/*"
+      ]
+    }
+  ]
+}

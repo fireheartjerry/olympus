@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "milestone": "off-host-temporal-recovery",
+  "result": "passed",
+  "completed_at": "2026-08-06T18:02:30.3640964Z",
+  "delivery": {
+    "pull_request": "https://github.com/fireheartjerry/olympus/pull/14",
+    "merge_commit": "bf0d719fdac5aa375f0c9b80bbc23f5f892eb196",
+    "required_checks_replayed_on_merge_commit": ["python", "helm"],
+    "required_checks_result": "passed"
+  },
+  "backup": {
+    "backup_id": "temporal-20260806T180025Z",
+    "archive_sha256": "404236f3a7f7608c1d0d24cf868d90cbe13e9dbee4aea870f9de2ac094331a53",
+    "archive_size_bytes": 133120,
+    "archive_version_id": "WswONtZex_GwHwKny88eZosuEgVaJI7h",
+    "signature_version_id": "X9Fbfb_2x0E45_XbBdBze1RsL7M4Sd8h",
+    "signature_verification": "verified-pinned-ed25519",
+    "server_side_encryption": "AES256",
+    "retention_mode": "GOVERNANCE",
+    "retention_until": "2026-09-05T14:00:28.099-04:00"
+  },
+  "boundary_proof": {
+    "overwrite": "PreconditionFailed",
+    "delete": "AccessDenied",
+    "governance_bypass": "AccessDenied",
+    "unencrypted_put_simulation": "implicitDeny",
+    "delete_simulation": "explicitDeny",
+    "governance_bypass_simulation": "explicitDeny"
+  },
+  "restore": {
+    "host": "Windows Docker Desktop via WSL Ubuntu",
+    "postgres_image_digest": "sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777",
+    "measured_rpo_seconds": 125.364,
+    "target_rpo_seconds": 93600,
+    "measured_rto_seconds": 40.299,
+    "target_rto_seconds": 3600,
+    "temporal_schema": "1.19",
+    "temporal_visibility_schema": "1.14",
+    "network": "none",
+    "storage": "tmpfs",
+    "residual_container": false
+  },
+  "production": {
+    "deployed_commit": "bf0d719fdac5aa375f0c9b80bbc23f5f892eb196",
+    "temporal_backup_timer": "active",
+    "health_check_timer": "active",
+    "gateway": "active",
+    "postgres": "ready",
+    "temporal": "healthy",
+    "offhost_backup": "fresh"
+  },
+  "next_drill": "2026-11-06"
+}
